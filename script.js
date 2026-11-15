@@ -1671,6 +1671,16 @@
     } catch (e) { /* нет сервера — блок скрыт */ }
   }
 
+  /* ---------- 19. QR-код на форму записи (окошко под кнопкой в шапке) ---------- */
+  (() => {
+    const btn = $('#qrBtn'), pop = $('#qrPop');
+    if (!btn || !pop) return;
+    const set = (open) => { pop.hidden = !open; btn.setAttribute('aria-expanded', open); };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); set(pop.hidden); });
+    document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target)) set(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { set(false); btn.focus(); } });
+  })();
+
   /* ---------- ЗАПУСК ---------- */
   // Сначала то, что не зависит от контента
   initTheme();
