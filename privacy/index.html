@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Политика конфиденциальности — Denys Savenko</title>
+  <meta name="description" content="Какие данные собирает сайт Denys Savenko, зачем и как их удалить.">
+  <link rel="icon" href="../images/favicon.svg" type="image/svg+xml">
+  <script>
+    try {
+      var saved = localStorage.getItem('theme');
+      document.documentElement.dataset.theme = saved || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500&display=swap" rel="stylesheet">
+  <style>
+    :root { --accent: #a855f7; --bg: #0a0a12; --text: #d9d9e3; --muted: #8a8a9c; --heading: #f5f5f8; --line: rgba(255,255,255,.09); }
+    :root[data-theme="light"] { --accent: #7c3aed; --bg: #f4f1fb; --text: #2a2a33; --muted: #6b6b78; --heading: #0f0f14; --line: rgba(76,58,140,.14); }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 400 16px/1.75 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    main { width: min(720px, 100% - 32px); margin: 0 auto; padding: 48px 0 80px; }
+    a { color: var(--accent); }
+    .back { display: inline-block; margin-bottom: 28px; color: var(--muted); text-decoration: none; font-size: 14px; }
+    h1 { font: 500 clamp(2rem, 6vw, 2.8rem)/1.1 'Space Grotesk', sans-serif; letter-spacing: -.035em; color: var(--heading); margin: 0 0 8px; }
+    h2 { font: 500 1.3rem/1.3 'Space Grotesk', sans-serif; color: var(--heading); margin: 2.2em 0 .5em; padding-top: 1.2em; border-top: 1px solid var(--line); }
+    .date { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+    ul { padding-left: 1.2em; } li { margin: .3em 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="../">← На сайт</a>
+    <h1>Политика конфиденциальности</h1>
+    <p class="date">Обновлено 15 ноября 2026 г.</p>
+
+    <p>Это личный сайт Denys Savenko (далее — «я»). Здесь коротко и честно описано, какие данные сайт получает, зачем и как их удалить.</p>
+
+    <h2>Какие данные я получаю</h2>
+    <ul>
+      <li><b>Заявка на запись:</b> имя, телефон, почта, выбранная услуга, дата и время, комментарий — то, что вы сами вписываете в анкету. Также сохраняется, с какого сайта вы пришли (например, instagram.com), — для статистики.</li>
+      <li><b>Вход через Google</b> (личный кабинет): имя, адрес почты и фото профиля из вашего аккаунта Google. Доступа к вашим письмам, файлам и другим данным Google сайт не получает.</li>
+      <li><b>Лайки постов:</b> анонимный отпечаток (хеш), вычисленный из адреса и браузера. Сам IP-адрес не сохраняется, по отпечатку нельзя узнать, кто вы.</li>
+      <li><b>Статистика посещений:</b> обезличенные данные Vercel Web Analytics (страницы, страна, тип устройства) — без cookies и без сведений, по которым можно вас узнать.</li>
+    </ul>
+
+    <h2>Зачем</h2>
+    <ul>
+      <li>Чтобы связаться с вами по заявке, подтвердить, перенести или отменить запись.</li>
+      <li>Чтобы отправить письма о записи: подтверждение, напоминание накануне, уведомления о переносе или отмене.</li>
+      <li>Чтобы в личном кабинете показать именно ваши записи.</li>
+      <li>Чтобы понимать, какие услуги и материалы интересны, — в обобщённом виде.</li>
+    </ul>
+    <p>Я не продаю данные и не передаю их третьим лицам для рекламы.</p>
+
+    <h2>Где и сколько хранятся</h2>
+    <ul>
+      <li>Записи хранятся в базе данных Upstash (Европа) и автоматически удаляются примерно через 2,5 месяца.</li>
+      <li>Заявки также приходят мне в Telegram, а письма отправляются через Gmail.</li>
+      <li>Сайт размещён на Vercel.</li>
+      <li>Вход в личный кабинет держится 30 дней в защищённой cookie; кнопка «Выйти» удаляет её сразу.</li>
+    </ul>
+
+    <h2>Cookies</h2>
+    <p>Сайт использует одну служебную cookie — только если вы вошли в личный кабинет, чтобы не входить заново. Рекламных и отслеживающих cookies нет. Выбранная тема (светлая/тёмная) запоминается в вашем браузере.</p>
+
+    <h2>Ваши права</h2>
+    <p>Вы можете в любой момент отменить запись (в личном кабинете или по ссылке из письма), попросить показать, исправить или удалить ваши данные. Для этого напишите мне в <a href="https://www.instagram.com/den1s_1/?hl=en" target="_blank" rel="noopener noreferrer">Instagram</a> или ответьте на любое письмо о записи.</p>
+    <p>Отозвать доступ сайта к аккаунту Google можно на странице <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer">«Сторонние приложения и сервисы»</a> вашего аккаунта Google.</p>
+  </main>
+</body>
+</html>

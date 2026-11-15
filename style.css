@@ -607,6 +607,8 @@ h1, h2, h3 {
 .form__hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .form__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; margin-top: 4px; }
 .form__note { margin: 0; font-size: .8rem; color: var(--text-faint); }
+.form__note a, .footer a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.form__note a:hover, .footer a:hover { color: var(--heading); }
 .form__status { margin: 0; min-height: 1.4em; font-size: .92rem; color: var(--text-muted); }
 .form__status.is-error { color: var(--pink); }
 .form__status.is-ok { color: var(--cyan); }

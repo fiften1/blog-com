@@ -1175,7 +1175,7 @@
           <p class="account__lead">Войдите через Google, чтобы видеть свои записи, переносить и отменять их в пару кликов.</p>
           <div class="account__gsi" id="gsiButton"></div>
           <p class="account__msg" id="accountMsg"></p>
-          <p class="account__fine">Сайт получит только ваше имя, почту и фото профиля — без доступа к письмам и файлам.</p>`;
+          <p class="account__fine">Сайт получит только ваше имя, почту и фото профиля — без доступа к письмам и файлам. <a href="privacy/">Подробнее</a></p>`;
         loadGsi().then(() => {
           google.accounts.id.initialize({ client_id: st.clientId, callback: onCredential, ux_mode: 'popup', auto_select: false });
           const dark = document.documentElement.dataset.theme !== 'light';
