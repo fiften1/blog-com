@@ -1675,21 +1675,33 @@
   (() => {
     const btn = $('#qrBtn'), pop = $('#qrPop');
     if (!btn || !pop) return;
-    let hideT = null, auto = false;
-    const set = (open) => { clearTimeout(hideT); auto = false; pop.classList.remove('is-auto'); pop.hidden = !open; btn.setAttribute('aria-expanded', open); };
-    btn.addEventListener('click', (e) => { e.stopPropagation(); set(pop.hidden); });
+    const wrap = btn.closest('.qr-wrap');
+    let hideT = null;
+    // обратный отсчёт до скрытия с полоской-таймером
+    const stopTimer = () => { clearTimeout(hideT); pop.classList.remove('is-timing'); };
+    const startTimer = (ms) => {
+      stopTimer();
+      pop.style.setProperty('--qr-t', `${ms}ms`);
+      void pop.offsetWidth; // перезапуск анимации полоски
+      pop.classList.add('is-timing');
+      hideT = setTimeout(() => set(false), ms);
+    };
+    const set = (open) => { stopTimer(); pop.hidden = !open; btn.setAttribute('aria-expanded', open); };
 
-    // Сам показывается через 5 секунд (раз за визит) и прячется через 6, если на него не навели мышку
-    const scheduleHide = (ms) => { clearTimeout(hideT); hideT = setTimeout(() => { if (auto) set(false); }, ms); };
-    // навели — окошко остаётся, пока не кликнуть мимо или не нажать Esc
-    pop.addEventListener('mouseenter', () => { if (auto) { clearTimeout(hideT); auto = false; pop.classList.remove('is-auto'); } });
+    // Навели на кнопку — открылось; пока курсор над кнопкой или окошком — не прячется;
+    // убрали курсор — через 3 секунды скроется (полоска показывает отсчёт)
+    wrap.addEventListener('mouseenter', () => { if (pop.hidden) set(true); stopTimer(); });
+    wrap.addEventListener('mouseleave', () => { if (!pop.hidden) startTimer(3000); });
+    btn.addEventListener('click', (e) => { e.stopPropagation(); if (pop.hidden) set(true); }); // для клавиатуры и тачпадов без наведения
+
+    // Сам показывается через 5 секунд (раз за визит) и прячется через 6, если на него не навели
     setTimeout(() => {
       try { if (sessionStorage.getItem('qrShown')) return; sessionStorage.setItem('qrShown', '1'); } catch (e) { /* приватный режим */ }
       const visible = btn.offsetParent !== null;               // на телефоне кнопки нет
       const busy = document.querySelector('.modal:not([hidden])') || document.activeElement?.matches('input, textarea, select');
       if (!visible || busy || !pop.hidden) return;
-      set(true); auto = true; pop.classList.add('is-auto');
-      scheduleHide(6000);
+      set(true);
+      if (!wrap.matches(':hover')) startTimer(6000);
     }, 5000);
     document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target)) set(false); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { set(false); btn.focus(); } });
@@ -1735,6 +1747,11 @@
     initTilt();
     initMagnetic();
     initPreloader();
+
+    // Ссылка на раздел (…/#booking): браузер прокручивает до того, как посты и файлы отрисованы,
+    // и раздел «уезжает» вниз — докручиваем ещё раз, когда всё на месте
+    const target = /^#[a-z][\w-]*$/.test(location.hash) && !location.hash.startsWith('#post-') ? document.querySelector(location.hash) : null;
+    if (target && target.matches('section')) setTimeout(() => target.scrollIntoView({ behavior: 'instant', block: 'start' }), reducedMotion ? 0 : 800);
 
     // Ссылка прямо на пост: …/#post-<id> (например, кнопка «Открыть пост» из бота модерации)
     const m = location.hash.match(/^#post-([a-z0-9_-]+)$/);

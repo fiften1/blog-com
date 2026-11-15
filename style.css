@@ -242,6 +242,18 @@ h1, h2, h3 {
 
 .header__actions { display: flex; gap: 8px; }
 
+/* Только форма записи (по QR-коду): прячем остальной сайт */
+.only-booking__back { display: none; }
+.only-booking #hero, .only-booking #search, .only-booking #blog, .only-booking #files, .only-booking #videos,
+.only-booking #links, .only-booking #reviews, .only-booking #about, .only-booking .footer,
+.only-booking .nav, .only-booking .burger, .only-booking .qr-wrap, .only-booking .section__kicker { display: none !important; }
+.only-booking #booking { padding-top: 100px; min-height: 100vh; }
+.only-booking #preloader { display: none !important; }
+.only-booking #booking .reveal { opacity: 1 !important; transform: none !important; filter: none !important; transition: none !important; }
+.only-booking #booking .section__head { flex-direction: column; align-items: flex-start; gap: 0; }
+.only-booking .only-booking__back { display: inline-block; margin-bottom: 14px; color: var(--text-muted); font-size: .9rem; text-decoration: none; }
+.only-booking .only-booking__back:hover { color: var(--heading); }
+
 /* QR на форму записи — маленькое окошко под кнопкой, только на компьютере */
 .qr-wrap { position: relative; }
 .qr-pop {
@@ -259,9 +271,11 @@ h1, h2, h3 {
 .qr-pop__text { margin: 0; font-size: .8rem; line-height: 1.45; color: var(--text-muted); }
 .qr-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--heading); }
 @keyframes qrIn { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
-/* сам всплыл — тонкая полоска внизу показывает, сколько осталось до скрытия */
-.qr-pop.is-auto::after { content: ''; position: absolute; left: 16px; right: 16px; bottom: 8px; height: 2px; border-radius: 2px;
-  background: var(--accent); opacity: .5; transform-origin: left; animation: qrTimer 6s linear forwards; }
+/* обратный отсчёт до скрытия — тонкая полоска внизу */
+.qr-pop.is-timing::after { content: ''; position: absolute; left: 16px; right: 16px; bottom: 8px; height: 2px; border-radius: 2px;
+  background: var(--accent); opacity: .5; transform-origin: left; animation: qrTimer var(--qr-t, 3s) linear forwards; }
+/* невидимый «мостик» между кнопкой и окошком, чтобы курсор не «выпадал» по пути */
+.qr-wrap::after { content: ''; position: absolute; top: 100%; right: 0; width: 60px; height: 14px; }
 
 @keyframes qrTimer { to { transform: scaleX(0); } }
 @media (max-width: 820px), (hover: none) { .qr-wrap { display: none; } }
