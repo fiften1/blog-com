@@ -221,10 +221,17 @@
                 <span class="form__label">Имя</span>
                 <input type="text" name="name" autocomplete="name" maxlength="80" placeholder="Как к вам обращаться" required>
               </label>
-              <label class="field">
-                <span class="form__label">Телефон</span>
-                <input type="tel" name="phone" autocomplete="tel" maxlength="30" placeholder="+7 900 000-00-00" required>
-              </label>
+              <div class="field">
+                <label class="form__label" for="bookingPhone">Телефон</label>
+                <!-- Код страны: флаг и код видны, поверх лежит прозрачный список стран -->
+                <div class="phone">
+                  <div class="phone__country">
+                    <span class="phone__code" id="phoneCode" aria-hidden="true">🇵🇱 +48</span>
+                    <select id="phoneCountry" aria-label="Код страны"></select>
+                  </div>
+                  <input type="tel" id="bookingPhone" name="phone" autocomplete="tel-national" inputmode="tel" maxlength="20" placeholder="512 345 678" required>
+                </div>
+              </div>
             </div>
 
             <label class="field">

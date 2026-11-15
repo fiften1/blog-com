@@ -792,6 +792,85 @@
   }
   visitSource(); // запоминаем источник сразу при заходе
 
+  // Коды стран для поля телефона: [код ISO, название, код страны, пример номера]
+  const COUNTRIES = [
+    ['PL', 'Польша', '+48', '512 345 678'],
+    ['UA', 'Украина', '+380', '50 123 4567'],
+    ['AT', 'Австрия', '+43', '664 123456'],
+    ['AM', 'Армения', '+374', '77 123456'],
+    ['BY', 'Беларусь', '+375', '29 123 45 67'],
+    ['GB', 'Великобритания', '+44', '7400 123456'],
+    ['DE', 'Германия', '+49', '1512 3456789'],
+    ['GE', 'Грузия', '+995', '555 12 34 56'],
+    ['IE', 'Ирландия', '+353', '85 012 3456'],
+    ['ES', 'Испания', '+34', '612 34 56 78'],
+    ['IT', 'Италия', '+39', '312 345 6789'],
+    ['KZ', 'Казахстан', '+7', '701 123 4567'],
+    ['LV', 'Латвия', '+371', '21 234 567'],
+    ['LT', 'Литва', '+370', '612 34567'],
+    ['MD', 'Молдова', '+373', '621 12 345'],
+    ['NL', 'Нидерланды', '+31', '6 12345678'],
+    ['NO', 'Норвегия', '+47', '406 12 345'],
+    ['PT', 'Португалия', '+351', '912 345 678'],
+    ['RU', 'Россия', '+7', '900 123-45-67'],
+    ['SK', 'Словакия', '+421', '912 123 456'],
+    ['US', 'США / Канада', '+1', '201 555 0123'],
+    ['TR', 'Турция', '+90', '501 234 56 78'],
+    ['FR', 'Франция', '+33', '6 12 34 56 78'],
+    ['CZ', 'Чехия', '+420', '601 123 456'],
+    ['SE', 'Швеция', '+46', '70 123 45 67'],
+    ['EE', 'Эстония', '+372', '5123 4567']
+  ];
+  // Флаг из кода страны (две «буквы-флага» Unicode)
+  const flag = (cc) => cc.replace(/./g, (ch) => String.fromCodePoint(127397 + ch.charCodeAt(0)));
+
+  function initPhone() {
+    const select = $('#phoneCountry');
+    const input = $('#bookingPhone');
+    const code = $('#phoneCode');
+    if (!select || !input) return () => input && input.value;
+
+    select.innerHTML = COUNTRIES.map(([cc, name, dial]) => `<option value="${cc}">${flag(cc)} ${esc(name)} ${dial}</option>`).join('');
+    const byCode = (cc) => COUNTRIES.find((c) => c[0] === cc) || COUNTRIES[0];
+    const setCountry = (cc) => {
+      const [c, , dial, example] = byCode(cc);
+      select.value = c;
+      code.textContent = `${flag(c)} ${dial}`;
+      input.placeholder = example;
+    };
+
+    // По умолчанию Польша; если язык браузера указывает на другую страну из списка — она
+    const region = (navigator.languages || [navigator.language || ''])
+      .map((l) => (l.split('-')[1] || '').toUpperCase()).find((r) => COUNTRIES.some((c) => c[0] === r));
+    setCountry(region || 'PL');
+    select.addEventListener('change', () => { setCountry(select.value); input.focus(); });
+
+    // Вставили или набрали номер с «+» или «00» — определяем страну и убираем код из поля
+    input.addEventListener('input', () => {
+      const raw = input.value.trim().replace(/^00/, '+');
+      if (!raw.startsWith('+')) return;
+      const digits = raw.replace(/[^\d]/g, '');
+      let match = null;
+      for (const c of COUNTRIES) {
+        const d = c[2].slice(1);
+        if (digits.startsWith(d) && (!match || d.length > match[2].length - 1)) match = c;
+      }
+      if (!match) return;
+      // +7: 6 и 7 после кода — Казахстан, иначе Россия
+      if (match[2] === '+7') match = byCode(/^7[67]/.test(digits) ? 'KZ' : 'RU');
+      if (digits.length <= match[2].length - 1) return; // ждём, пока наберут дальше кода
+      setCountry(match[0]);
+      const rest = raw.slice(raw.indexOf(match[2].slice(1)) + match[2].length - 1).replace(/^[\s-]+/, '');
+      input.value = rest;
+    });
+
+    // Полный номер для заявки: «+48 512 345 678»
+    return () => {
+      const national = input.value.trim();
+      return national ? `${byCode(select.value)[2]} ${national}` : '';
+    };
+  }
+
   function initBooking(site) {
     const form = $('#bookingForm');
     if (!form) return;
@@ -802,6 +881,7 @@
     const status = $('#bookingStatus');
     const submit = $('#bookingSubmit');
     const startedAt = Date.now();
+    const fullPhone = initPhone();
 
     // Услуги — радиокнопки-«таблетки»
     $('#serviceOptions').innerHTML = services.map((s, i) => `
@@ -883,7 +963,8 @@
       check(dateInput, !data.date ? 'Выберите дату' : (data.date < dateInput.min || data.date > dateInput.max) ? 'Эта дата недоступна' : '');
       check(timeSelect, data.time ? '' : 'Выберите время');
       check(form.elements.name, data.name.trim().length >= 2 ? '' : 'Напишите имя');
-      check(form.elements.phone, (data.phone.replace(/\D/g, '').length >= 7) ? '' : 'Проверьте номер телефона');
+      const phoneDigits = data.phone.replace(/\D/g, '').length;
+      check(form.elements.phone, !phoneDigits ? 'Напишите номер телефона' : (phoneDigits < 6 || phoneDigits > 12) ? 'Проверьте номер телефона' : '');
       check(form.elements.email, /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim()) ? '' : 'Проверьте почту');
       return { data, errors };
     };
@@ -909,7 +990,7 @@
         const res = await fetch('/api/booking', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...data, ref: visitSource(), elapsed: Date.now() - startedAt })
+          body: JSON.stringify({ ...data, phone: fullPhone(), ref: visitSource(), elapsed: Date.now() - startedAt })
         });
         const out = await res.json().catch(() => ({}));
         if (out.taken) {
