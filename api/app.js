@@ -2,7 +2,7 @@
    /api/app — данные для Mini App (страница /tg/ внутри Telegram).
    Каждый запрос подписан Telegram (initData); пускаем только владельца
    (TELEGRAM_CHAT_ID). Действия:
-     month   {from, to}                       — записи за период + настройки
+     month   {from, to}                       — записи за период + настройки + заявки, ждущие подтверждения
      add     {date, time, name, phone, service, comment} — записать вручную
      close   {date, type, note}               — закрыть день (dayoff | vacation | busy)
      cancel  {id}                             — отменить запись / открыть день
@@ -21,6 +21,15 @@ const view = (b) => ({
   service: b.service || '', name: b.name || '', phone: b.phone || '', email: b.email || '', comment: b.comment || '',
   closeType: b.time === lib.WHOLE_DAY ? (b.closeType || 'busy') : undefined
 });
+
+// Заявки с сайта, которые ещё не подтверждены (только будущие)
+async function pendingList() {
+  const now = lib.nowSlotTs();
+  return (await lib.upcoming(500))
+    .filter((b) => b.time !== lib.WHOLE_DAY && (b.source || 'site') === 'site' && b.status !== 'confirmed' && lib.slotTs(b.date, b.time) >= now)
+    .sort((a, b) => lib.slotTs(a.date, a.time) - lib.slotTs(b.date, b.time))
+    .map(view);
+}
 
 // Сообщение в чат о действии из приложения (чтобы история была и в переписке)
 async function notify(b, verb) {
@@ -44,11 +53,11 @@ module.exports = async function handler(req, res) {
     switch (body.action) {
       case 'month': {
         if (!isDate(body.from) || !isDate(body.to)) return res.status(400).json({ ok: false, error: 'Неверный период.' });
-        const [list, cfg] = await Promise.all([lib.rangeBookings(body.from, body.to), (async () => ({ slots: await lib.siteSlots(), services: await lib.siteServices() }))()]);
+        const [list, cfg, pending] = await Promise.all([lib.rangeBookings(body.from, body.to), (async () => ({ slots: await lib.siteSlots(), services: await lib.siteServices() }))(), pendingList()]);
         return res.status(200).json({
           ok: true, today: lib.todayISO(), nowMinutes: lib.nowMinutes(),
           slots: cfg.slots, services: cfg.services, closeTypes: lib.CLOSE_TYPES,
-          bookings: list.map(view)
+          bookings: list.map(view), pending
         });
       }
 

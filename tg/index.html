@@ -50,8 +50,14 @@
     .icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
     /* вкладки */
-    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); margin-bottom: 14px; }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); margin-bottom: 14px; }
     .tabs button { padding: 8px; border-radius: 9px; font-size: 14px; color: var(--muted); transition: background .2s, color .2s; }
+    .tabs button i { font: normal 11px var(--mono); margin-left: 5px; padding: 1px 6px; border-radius: 99px; background: #ec4899; color: #fff; vertical-align: 1px; }
+    .pend { display: grid; gap: 14px; }
+    .pend__day { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 2px 6px; }
+    .pend__row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+    .pend__ok { padding: 0 14px; border-radius: 12px; background: #22c55e; color: #fff; font-weight: 600; font-size: 13px; }
+    .pend__ok:disabled { opacity: .5; }
     .tabs button.is-on { background: var(--surface-2); color: var(--heading); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
     /* статистика */
@@ -224,7 +230,7 @@
     const state = {
       today: null, nowMin: 0, view: null, selected: null,
       slots: [], services: [], closeTypes: {}, bookings: [], loading: true, error: null,
-      tab: 'cal', stats: null, statsLoading: false
+      tab: 'cal', stats: null, statsLoading: false, pending: []
     };
 
     // ---- API ----
@@ -249,7 +255,7 @@
       state.loading = true; render();
       try {
         const out = await api('month', { from: start, to: end });
-        Object.assign(state, { today: out.today, nowMin: out.nowMinutes, slots: out.slots, services: out.services, closeTypes: out.closeTypes, bookings: out.bookings, error: null });
+        Object.assign(state, { today: out.today, nowMin: out.nowMinutes, slots: out.slots, services: out.services, closeTypes: out.closeTypes, bookings: out.bookings, pending: out.pending || [], error: null });
       } catch (e) {
         state.error = e;
       }
@@ -317,13 +323,33 @@
         <p class="stats">${stats}</p>
         <div class="tabs" role="tablist">
           <button role="tab" data-tab="cal" class="${state.tab === 'cal' ? 'is-on' : ''}">Календарь</button>
+          <button role="tab" data-tab="pending" class="${state.tab === 'pending' ? 'is-on' : ''}">Ожидают${state.pending.length ? `<i>${state.pending.length}</i>` : ''}</button>
           <button role="tab" data-tab="stats" class="${state.tab === 'stats' ? 'is-on' : ''}">Статистика</button>
         </div>
-        ${state.tab === 'stats' ? statsView() : `<div class="cal">
+        ${state.tab === 'stats' ? statsView() : state.tab === 'pending' ? pendingView() : `<div class="cal">
           <div class="cal__head">${WEEK.map((w) => `<span>${w}</span>`).join('')}</div>
           <div class="cal__grid">${cells}</div>
         </div>
         <section class="dayview">${state.loading && !state.bookings.length ? skeleton() : dayView(sel)}</section>`}`;
+    }
+
+    function pendingView() {
+      if (state.loading && !state.pending.length) return skeleton();
+      if (!state.pending.length) return '<div class="state" style="padding:40px 20px"><h2>Всё подтверждено</h2><p>Новые заявки с сайта появятся здесь.</p></div>';
+      const days = {};
+      state.pending.forEach((b) => (days[b.date] = days[b.date] || []).push(b));
+      return `<div class="pend">${Object.keys(days).sort().map((d) => `
+        <div><p class="pend__day">${d === state.today ? 'Сегодня' : WEEK_FULL[weekday(d)]}, ${human(d)}</p>
+          <div class="slots">${days[d].map((b) => `<div class="pend__row">${slotRow(b.time, b, false)}<button class="pend__ok" data-confirm="${b.id}">✓</button></div>`).join('')}</div>
+        </div>`).join('')}</div>`;
+    }
+
+    async function confirmBooking(id) {
+      const out = await api('confirm', { id });
+      const b = state.bookings.find((x) => x.id === id);
+      if (b) Object.assign(b, out.booking);
+      state.pending = state.pending.filter((x) => x.id !== id);
+      render(); toast('Подтверждено'); notifyHaptic('success');
     }
 
     function statsView() {
@@ -496,7 +522,7 @@
     }
 
     function sheetBooking(id) {
-      const b = state.bookings.find((x) => x.id === id);
+      const b = state.bookings.find((x) => x.id === id) || state.pending.find((x) => x.id === id);
       if (!b) return;
       const row = (k, v) => (v ? `<div class="info__row"><span>${k}</span><b>${v}</b></div>` : '');
       const phoneLink = b.phone ? `<a href="tel:${esc(b.phone.replace(/[^\d+]/g, ''))}">${esc(b.phone)}</a>` : '';
@@ -514,11 +540,11 @@
         const ok = $('#bOk', root);
         if (ok) ok.addEventListener('click', async () => {
           ok.disabled = true;
-          try { const out = await api('confirm', { id }); Object.assign(b, out.booking); closeSheet(); render(); toast('Подтверждено'); notifyHaptic('success'); }
+          try { closeSheet(); await confirmBooking(id); }
           catch (err) { toast(err.message); ok.disabled = false; }
         });
         $('#bCancel', root).addEventListener('click', () => confirmThen(`Отменить запись на ${b.time}? Время снова станет свободным на сайте.`, async () => {
-          try { await api('cancel', { id }); state.bookings = state.bookings.filter((x) => x.id !== id); closeSheet(); render(); toast('Запись отменена'); notifyHaptic('success'); }
+          try { await api('cancel', { id }); state.bookings = state.bookings.filter((x) => x.id !== id); state.pending = state.pending.filter((x) => x.id !== id); closeSheet(); render(); toast('Запись отменена'); notifyHaptic('success'); }
           catch (err) { toast(err.message); loadMonth(); }
         }));
       });
@@ -544,7 +570,7 @@
       if (tab) {
         haptic();
         state.tab = tab.dataset.tab;
-        return state.tab === 'stats' ? loadStats() : render();
+        return state.tab === 'stats' ? loadStats() : state.tab === 'pending' ? loadMonth() : render();
       }
       const nav = e.target.closest('[data-nav]');
       if (nav) {
@@ -554,6 +580,11 @@
         state.selected = iso(state.view.y, state.view.m, 1) <= state.today && state.today <= iso(state.view.y, state.view.m, 31) ? state.today : iso(state.view.y, state.view.m, 1);
         if (state.tab === 'stats') { loadStats(); loadMonth(); } else loadMonth();
         return;
+      }
+      const okb = e.target.closest('[data-confirm]');
+      if (okb) {
+        haptic(); okb.disabled = true;
+        return confirmBooking(okb.dataset.confirm).catch((err) => { toast(err.message); okb.disabled = false; });
       }
       const add = e.target.closest('[data-add]');
       if (add) { haptic(); return sheetAdd(state.selected, add.dataset.add); }
