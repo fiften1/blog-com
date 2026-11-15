@@ -1091,6 +1091,7 @@
             ${out.manageUrl ? `<p>Подтверждение отправлено на почту. Если планы поменяются, запись можно <a href="${esc(out.manageUrl)}">перенести или отменить</a>.</p>` : ''}
           </div>`;
         form.closest('.booking').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+        account.refresh();
       } catch (err) {
         status.textContent = `${err.message} Можно написать мне в Instagram.`;
         status.classList.add('is-error');
@@ -1098,6 +1099,250 @@
       }
     });
   }
+
+  /* ---------- 15. ЛИЧНЫЙ КАБИНЕТ (вход через Google) ---------- */
+  // Клиент видит свои будущие записи (по почте Google), переносит и отменяет их.
+  // Кнопка в шапке появляется, только если в Vercel задан GOOGLE_CLIENT_ID.
+  const account = (() => {
+    const st = { enabled: false, clientId: null, user: null, bookings: [] };
+    const modalEl = $('#accountModal');
+    const body = $('#accountBody');
+    const btn = $('#accountBtn');
+    if (!modalEl || !btn) return { init() {}, refresh() {} };
+    let slotsCfg = DEFAULT_SLOTS;
+
+    const api = async (data) => {
+      const r = await fetch('/api/account', {
+        method: data ? 'POST' : 'GET', credentials: 'same-origin', cache: 'no-store',
+        headers: data ? { 'Content-Type': 'application/json' } : undefined,
+        body: data ? JSON.stringify(data) : undefined
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.ok) throw Object.assign(new Error(out.error || 'Ошибка сети. Попробуйте ещё раз.'), out);
+      return out;
+    };
+
+    // Кнопка в шапке: иконка или аватар
+    function paintButton() {
+      btn.hidden = !st.enabled;
+      const img = $('#accountAvatar');
+      const has = !!(st.user && st.user.picture);
+      img.hidden = !has;
+      if (has) img.src = st.user.picture;
+      btn.classList.toggle('is-in', !!st.user);
+      btn.setAttribute('aria-label', st.user ? `Личный кабинет: ${st.user.name || st.user.email}` : 'Войти в личный кабинет');
+    }
+
+    // Подставить имя и почту в анкету записи (если поля пустые)
+    function autofill() {
+      const form = $('#bookingForm');
+      if (!st.user || !form || !form.elements.email) return;
+      if (!form.elements.name.value && st.user.name) form.elements.name.value = st.user.name;
+      if (!form.elements.email.value) form.elements.email.value = st.user.email;
+    }
+
+    // Подгружаем скрипт Google только когда нужен
+    let gsiPromise = null;
+    const loadGsi = () => gsiPromise || (gsiPromise = new Promise((resolve, reject) => {
+      if (window.google && google.accounts && google.accounts.id) return resolve();
+      const sc = document.createElement('script');
+      sc.src = 'https://accounts.google.com/gsi/client';
+      sc.async = true;
+      sc.onload = resolve;
+      sc.onerror = () => { gsiPromise = null; reject(new Error('Не удалось загрузить вход Google.')); };
+      document.head.appendChild(sc);
+    }));
+
+    async function onCredential(resp) {
+      say('Вхожу…');
+      try {
+        const out = await api({ action: 'login', credential: resp.credential });
+        st.user = out.user; st.bookings = out.bookings || [];
+        paintButton(); autofill(); render();
+      } catch (e) { say(e.message, 'is-error'); }
+    }
+
+    const say = (text, cls = '') => { const m = $('#accountMsg'); if (m) { m.textContent = text; m.className = `account__msg ${cls}`; } };
+    const human = (iso) => {
+      const d = new Date(iso + 'T00:00:00');
+      return isNaN(d) ? iso : new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' }).format(d);
+    };
+
+    function render() {
+      if (!st.user) {
+        body.innerHTML = `
+          <h2 class="account__title" id="accountTitle">Личный кабинет</h2>
+          <p class="account__lead">Войдите через Google, чтобы видеть свои записи, переносить и отменять их в пару кликов.</p>
+          <div class="account__gsi" id="gsiButton"></div>
+          <p class="account__msg" id="accountMsg"></p>
+          <p class="account__fine">Сайт получит только ваше имя, почту и фото профиля — без доступа к письмам и файлам.</p>`;
+        loadGsi().then(() => {
+          google.accounts.id.initialize({ client_id: st.clientId, callback: onCredential, ux_mode: 'popup', auto_select: false });
+          const dark = document.documentElement.dataset.theme !== 'light';
+          google.accounts.id.renderButton($('#gsiButton'), { theme: dark ? 'filled_black' : 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: 'ru' });
+        }).catch((e) => say(e.message, 'is-error'));
+        return;
+      }
+
+      const u = st.user;
+      const items = st.bookings.map((b) => `
+        <article class="mybk__item" data-id="${esc(b.id)}">
+          <div class="mybk__when">${esc(human(b.date))}, ${esc(b.time)}</div>
+          <div class="mybk__meta">${b.service ? `<span>${esc(b.service)}</span>` : ''}
+            <span class="mybk__status ${b.status === 'confirmed' ? 'is-ok' : 'is-new'}">${b.status === 'confirmed' ? 'подтверждено' : 'ждёт подтверждения'}</span></div>
+          <div class="mybk__actions">
+            <button class="btn btn--ghost btn--sm" data-act="move">Перенести</button>
+            <button class="btn btn--ghost btn--sm btn--danger" data-act="cancel">Отменить</button>
+          </div>
+          <div class="mybk__move">
+            <div class="form__row">
+              <label class="field"><span class="form__label">Новая дата</span><input type="date" data-f="date"></label>
+              <label class="field"><span class="form__label">Время</span><select data-f="time"><option value="">Сначала дата</option></select></label>
+            </div>
+            <button class="btn btn--primary btn--sm" data-act="save" disabled>Перенести на это время</button>
+          </div>
+        </article>`).join('');
+
+      body.innerHTML = `
+        <div class="account__user">
+          ${u.picture ? `<img src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : ''}
+          <div><b id="accountTitle">${esc(u.name || 'Личный кабинет')}</b><span>${esc(u.email)}</span></div>
+          <button class="account__logout" data-act="logout" type="button">Выйти</button>
+        </div>
+        <h3>Мои записи</h3>
+        ${items ? `<div class="mybk">${items}</div>` : `<div class="account__empty">Будущих записей нет.<br><button class="btn btn--primary btn--sm" data-act="book">Записаться</button></div>`}
+        <p class="account__msg" id="accountMsg"></p>
+        <p class="account__fine">Здесь видны записи, оставленные на почту ${esc(u.email)}.</p>`;
+    }
+
+    // Свободное время на дату (без своего текущего слота)
+    async function fillTimes(item, b) {
+      const date = item.querySelector('[data-f="date"]').value;
+      const sel = item.querySelector('[data-f="time"]');
+      const save = item.querySelector('[data-act="save"]');
+      save.disabled = true;
+      if (!date) return;
+      sel.innerHTML = '<option value="">Загружаю…</option>';
+      let taken = [], closed = null;
+      try { const r = await (await fetch(`/api/slots?date=${date}`, { cache: 'no-store' })).json(); taken = r.taken || []; closed = r.closed; } catch (e) { /* ничего */ }
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes() + 30;
+      const pad = (n) => String(n).padStart(2, '0');
+      const isToday = date === `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const free = closed ? [] : slotsCfg.filter((t) => {
+        const [h, m] = t.split(':').map(Number);
+        return !taken.includes(t) && !(isToday && h * 60 + m < nowMin) && !(date === b.date && t === b.time);
+      });
+      sel.innerHTML = free.length
+        ? '<option value="">Выбрать</option>' + free.map((t) => `<option>${esc(t)}</option>`).join('')
+        : `<option value="">${closed ? esc(closed) + ' — записи нет' : 'Свободного времени нет'}</option>`;
+    }
+
+    body.addEventListener('change', (e) => {
+      const item = e.target.closest('.mybk__item');
+      if (!item) return;
+      const b = st.bookings.find((x) => x.id === item.dataset.id);
+      if (e.target.dataset.f === 'date') fillTimes(item, b);
+      if (e.target.dataset.f === 'time') item.querySelector('[data-act="save"]').disabled = !e.target.value;
+    });
+
+    body.addEventListener('click', async (e) => {
+      const a = e.target.closest('[data-act]');
+      if (!a) return;
+      const act = a.dataset.act;
+      if (act === 'logout') {
+        try { await api({ action: 'logout' }); } catch (err) { /* всё равно выходим */ }
+        try { google.accounts.id.disableAutoSelect(); } catch (err) { /* скрипт не загружен */ }
+        st.user = null; st.bookings = [];
+        paintButton(); render();
+        return;
+      }
+      if (act === 'book') {
+        close();
+        $('#booking').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
+        return;
+      }
+      const item = a.closest('.mybk__item');
+      const b = item && st.bookings.find((x) => x.id === item.dataset.id);
+      if (!b) return;
+      if (act === 'move') {
+        const box = item.querySelector('.mybk__move');
+        box.classList.toggle('is-open');
+        const d = item.querySelector('[data-f="date"]');
+        const pad = (n) => String(n).padStart(2, '0');
+        const iso = (x) => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+        const max = new Date(); max.setDate(max.getDate() + 60);
+        d.min = iso(new Date()); d.max = iso(max);
+        if (box.classList.contains('is-open')) d.focus();
+        return;
+      }
+      if (act === 'cancel') {
+        if (!confirm(`Отменить запись на ${human(b.date)}, ${b.time}? Время освободится для других.`)) return;
+        a.disabled = true; say('Отменяю…');
+        try {
+          const out = await api({ action: 'cancel', id: b.id });
+          st.bookings = out.bookings; render(); say('Запись отменена. Письмо с подтверждением отправлено.', 'is-ok');
+        } catch (err) { a.disabled = false; say(err.message, 'is-error'); }
+        return;
+      }
+      if (act === 'save') {
+        const date = item.querySelector('[data-f="date"]').value;
+        const time = item.querySelector('[data-f="time"]').value;
+        a.disabled = true; say('Переношу…');
+        try {
+          const out = await api({ action: 'move', id: b.id, date, time });
+          st.bookings = out.bookings; render(); say(`Готово! Новое время: ${human(date)}, ${time}.`, 'is-ok');
+        } catch (err) {
+          a.disabled = false; say(err.message, 'is-error');
+          if (err.taken) fillTimes(item, b);
+        }
+      }
+    });
+
+    // Окно кабинета
+    let lastFocus = null;
+    function open() {
+      lastFocus = document.activeElement;
+      render();
+      const sbw = innerWidth - document.documentElement.clientWidth;
+      document.body.style.paddingRight = sbw ? sbw + 'px' : '';
+      document.body.classList.add('is-locked');
+      modalEl.hidden = false;
+      void modalEl.offsetWidth;
+      modalEl.classList.add('is-open');
+      $('.modal__close', modalEl).focus({ preventScroll: true });
+    }
+    function close() {
+      if (modalEl.hidden) return;
+      modalEl.classList.remove('is-open');
+      setTimeout(() => {
+        modalEl.hidden = true;
+        document.body.classList.remove('is-locked');
+        document.body.style.paddingRight = '';
+        lastFocus && lastFocus.focus({ preventScroll: true });
+      }, reducedMotion ? 0 : 400);
+    }
+    btn.addEventListener('click', open);
+    modalEl.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modalEl.hidden) close(); });
+
+    async function init(site) {
+      if (Array.isArray(site && site.slots) && site.slots.length) slotsCfg = site.slots;
+      try {
+        const out = await api();
+        Object.assign(st, { enabled: out.enabled, clientId: out.clientId, user: out.user, bookings: out.bookings || [] });
+      } catch (e) { st.enabled = false; } // нет сервера (например, GitHub Pages) — кабинет скрыт
+      paintButton();
+      autofill();
+      if (location.hash === '#account' && st.enabled) open();
+    }
+    // После новой записи — обновить список в кабинете
+    async function refresh() {
+      if (!st.user) return;
+      try { const out = await api(); st.bookings = out.bookings || []; } catch (e) { /* ничего */ }
+    }
+    return { init, refresh };
+  })();
 
   /* ---------- ЗАПУСК ---------- */
   // Сначала то, что не зависит от контента
@@ -1112,6 +1357,7 @@
   loadContent().then((ok) => {
     applySite(DATA.site);
     initBooking(DATA.site);
+    account.init(DATA.site);
     renderPosts();
     renderFiles();
     renderVideos();
