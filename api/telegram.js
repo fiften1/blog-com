@@ -19,10 +19,12 @@ const COMMANDS = [
   { command: 'add', description: 'Записать вручную / закрыть время' },
   { command: 'list', description: 'Ближайшие записи' }
 ];
-const HELP = 'Сюда приходят заявки с сайта.\n\n'
-  + '/add — записать вручную (если клиент записался лично или через другой канал) или закрыть весь день\n'
+const HELP = '<b>Записи с сайта</b>\n\n'
+  + '📅 <b>Календарь</b> — кнопка «Записи» внизу слева: месяц, расписание дня, ручная запись, выходные.\n\n'
+  + '/add — быстро записать вручную или закрыть день прямо в чате\n'
   + '/list — ближайшие записи\n\n'
   + 'Под каждой заявкой есть кнопки «Подтвердить» и «Отменить запись».';
+const appButton = () => (lib.appUrl() ? { inline_keyboard: [[{ text: '📅 Открыть календарь', web_app: { url: lib.appUrl() } }]] } : undefined);
 
 async function setup(req, res) {
   // Адрес берём из системной переменной Vercel (основной домен проекта), а не из запроса
@@ -35,7 +37,9 @@ async function setup(req, res) {
     drop_pending_updates: true
   });
   await lib.tg('setMyCommands', { commands: COMMANDS });
-  return res.status(200).json({ ok: true, webhook: url, db: lib.hasDb() });
+  // Кнопка «Записи» слева от поля ввода открывает Mini App
+  await lib.tg('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Записи', web_app: { url: `https://${host}/tg/` } } });
+  return res.status(200).json({ ok: true, webhook: url, app: `https://${host}/tg/`, db: lib.hasDb() });
 }
 
 /* ---------- Ручная запись: экраны ---------- */
@@ -81,16 +85,23 @@ async function screenTimes(chatId, messageId, date) {
   return show(chatId, messageId, `✍️ <b>${lib.esc(lib.humanDate(date))}</b>\n\nВыберите время:${note}`, rows);
 }
 
+// Экран 2б: какой это день — от этого зависит подпись на сайте
+async function screenCloseType(chatId, messageId, date) {
+  const rows = Object.entries(lib.CLOSE_TYPES).map(([k, t]) => [{ text: `${t.icon} ${t.label}`, callback_data: `ac:${date}:${k}` }]);
+  rows.push([{ text: '← Назад', callback_data: `ad:${date}` }, { text: 'Отмена', callback_data: 'ax' }]);
+  return show(chatId, messageId, `🚫 <b>Закрыть ${lib.esc(lib.humanDate(date))}</b>\n\nЧто увидят посетители сайта?`, rows);
+}
+
 // Экран 3: ждём имя/заметку текстом
-async function screenAskName(chatId, messageId, date, time) {
-  await lib.setPending(chatId, { date, time, messageId });
-  const what = time === lib.WHOLE_DAY ? 'весь день' : time;
+async function screenAskName(chatId, messageId, date, time, closeType) {
+  await lib.setPending(chatId, { date, time, messageId, closeType });
+  const what = time === lib.WHOLE_DAY ? `${lib.CLOSE_TYPES[closeType].icon} ${lib.CLOSE_TYPES[closeType].label}` : time;
   return show(chatId, messageId,
     `✍️ <b>${lib.esc(lib.humanDate(date))}, ${lib.esc(what)}</b>\n\n`
     + (time === lib.WHOLE_DAY
-      ? 'Напишите причину одним сообщением (например, «выходной»), или нажмите кнопку ниже.'
+      ? 'Можно написать заметку для себя одним сообщением (на сайте её не видно), или нажмите кнопку ниже.'
       : 'Напишите одним сообщением, кто записался: имя, телефон, услуга — как удобно. Или нажмите кнопку ниже.'),
-    [[{ text: time === lib.WHOLE_DAY ? 'Без причины' : 'Без имени', callback_data: 'an' }], [{ text: 'Отмена', callback_data: 'ax' }]]);
+    [[{ text: time === lib.WHOLE_DAY ? 'Без заметки' : 'Без имени', callback_data: 'an' }], [{ text: 'Отмена', callback_data: 'ax' }]]);
 }
 
 // Сохранение ручной записи
@@ -99,7 +110,7 @@ async function saveManual(chatId, note) {
   if (!p) return false;
   await lib.clearPending(chatId);
   const b = await lib.reserve({
-    date: p.date, time: p.time, source: 'manual',
+    date: p.date, time: p.time, source: 'manual', closeType: p.closeType,
     service: '', name: String(note || '').trim().slice(0, 300), phone: '', email: '', comment: ''
   });
   if (!b) {
@@ -142,7 +153,13 @@ async function onButton(q) {
       const [date, ...rest] = arg.split(':');
       const time = rest.join(':');
       await answer();
+      if (time === lib.WHOLE_DAY) return screenCloseType(chatId, messageId, date);
       return screenAskName(chatId, messageId, date, time);
+    }
+    case 'ac': {
+      const [date, type] = arg.split(':');
+      await answer();
+      return screenAskName(chatId, messageId, date, lib.WHOLE_DAY, lib.CLOSE_TYPES[type] ? type : 'dayoff');
     }
     case 'ab': return answer('Это время недоступно');
     case 'an': {
@@ -194,18 +211,21 @@ async function onButton(q) {
 /* ---------- Список ближайших записей ---------- */
 async function sendList(chatId, editId) {
   const list = await lib.upcoming(15);
-  const icon = (b) => (b.time === lib.WHOLE_DAY ? '🚫' : b.source === 'manual' ? '✍️' : b.status === 'confirmed' ? '✅' : '🕓');
-  const who = (b) => [b.service, b.name, b.phone].filter(Boolean).map(lib.esc).join(' · ') || (b.time === lib.WHOLE_DAY ? 'день закрыт' : 'без имени');
+  const icon = (b) => (b.time === lib.WHOLE_DAY ? lib.closeType(b).icon : b.source === 'manual' ? '✍️' : b.status === 'confirmed' ? '✅' : '🕓');
+  const who = (b) => (b.time === lib.WHOLE_DAY
+    ? [lib.closeType(b).label, b.name].filter(Boolean).map(lib.esc).join(' · ')
+    : [b.service, b.name, b.phone].filter(Boolean).map(lib.esc).join(' · ') || 'без имени');
   const text = list.length
     ? '<b>Ближайшие записи</b>\n\n' + list.map((b) =>
       `${icon(b)} <b>${lib.esc(lib.humanDate(b.date, true))}, ${lib.esc(lib.timeLabel(b.time))}</b>\n${who(b)}`).join('\n\n') +
-      '\n\n✍️ — записано вручную, 🚫 — день закрыт.\nНажмите кнопку, чтобы отменить запись и освободить время. Добавить: /add'
+      '\n\n🕓 заявка · ✅ подтверждена · ✍️ вручную · 🌴✈️🔒 день закрыт\nНажмите кнопку, чтобы отменить запись и освободить время.'
     : 'Ближайших записей нет. Добавить вручную: /add';
+  const url = lib.appUrl();
   const reply_markup = {
     inline_keyboard: list.map((b) => [{
       text: `❌ ${lib.humanDate(b.date, true)}, ${lib.timeLabel(b.time)}${b.name ? ' · ' + b.name : ''}`.slice(0, 60),
       callback_data: `del:${b.id}`
-    }])
+    }]).concat(url ? [[{ text: '📅 Открыть календарь', web_app: { url } }]] : [])
   };
   const payload = { chat_id: chatId, text, parse_mode: 'HTML', reply_markup };
   if (editId) return lib.tg('editMessageText', { ...payload, message_id: editId }).catch(() => {});
@@ -230,7 +250,7 @@ async function onMessage(m) {
   }
   // Обычный текст: если ждём имя для ручной записи — сохраняем
   if (text && !text.startsWith('/') && lib.hasDb() && (await saveManual(chatId, text))) return;
-  return lib.tg('sendMessage', { chat_id: chatId, text: HELP });
+  return lib.tg('sendMessage', { chat_id: chatId, text: HELP, parse_mode: 'HTML', reply_markup: appButton() });
 }
 
 module.exports = async function handler(req, res) {

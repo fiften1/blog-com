@@ -799,22 +799,24 @@
 
     // Время: прошедшие (на сегодня) и уже занятые слоты недоступны
     let taken = [];
+    let closedLabel = null; // «Выходной» / «Отпуск» / «Занято», если день закрыт через бота
     const fillSlots = () => {
       const isToday = dateInput.value === isoLocal(new Date());
       const now = new Date();
       const nowMin = now.getHours() * 60 + now.getMinutes() + 30; // минимум за 30 минут
       const prev = timeSelect.value;
       let free = 0;
-      const dayClosed = taken.includes('*'); // день закрыт целиком (через бота)
+      const dayClosed = !!closedLabel || taken.includes('*'); // день закрыт целиком (через бота)
       timeSelect.innerHTML = '<option value="">Выберите время</option>' + slots.map((t) => {
         const [h, m] = t.split(':').map(Number);
         const past = isToday && h * 60 + (m || 0) < nowMin;
         const busy = dayClosed || taken.includes(t);
         if (!past && !busy) free++;
-        const note = past ? ' — прошло' : busy ? ' — занято' : '';
+        const note = past ? ' — прошло' : dayClosed ? '' : busy ? ' — занято' : '';
         return `<option value="${esc(t)}" ${past || busy ? 'disabled' : ''}>${esc(t)}${note}</option>`;
       }).join('');
-      if (dateInput.value && !free) timeSelect.options[0].textContent = dayClosed ? 'В этот день записи нет' : 'На эту дату всё занято';
+      if (dateInput.value && !free) timeSelect.options[0].textContent = dayClosed ? `${closedLabel || 'Занято'} — записи нет` : 'На эту дату всё занято';
+      showDayNote(dayClosed ? `${closedLabel || 'Занято'}: в этот день записи нет, выберите другую дату.` : '');
       if (prev && !timeSelect.querySelector(`option[value="${CSS.escape(prev)}"]:not([disabled])`)) timeSelect.value = '';
       else timeSelect.value = prev;
     };
@@ -822,6 +824,7 @@
     let slotsReq = 0;
     const loadTaken = async () => {
       taken = [];
+      closedLabel = null;
       fillSlots();
       if (!dateInput.value) return;
       const req = ++slotsReq;
@@ -829,10 +832,18 @@
       try {
         const r = await fetch(`/api/slots?date=${encodeURIComponent(dateInput.value)}`, { cache: 'no-store' });
         const out = r.ok ? await r.json() : {};
-        if (req === slotsReq) taken = safe(out.taken);
+        if (req === slotsReq) { taken = safe(out.taken); closedLabel = out.closed || null; }
       } catch (e) { /* без сервера (например, на GitHub Pages) просто не знаем о занятых */ }
       if (req === slotsReq) { timeSelect.disabled = false; fillSlots(); }
     };
+    // Подсказка под датой, если день закрыт
+    function showDayNote(text) {
+      const box = dateInput.closest('.field');
+      let note = box.querySelector('.field__note');
+      if (!text) { if (note) note.remove(); return; }
+      if (!note) { note = document.createElement('span'); note.className = 'field__note'; box.appendChild(note); }
+      note.textContent = text;
+    }
     fillSlots();
     dateInput.addEventListener('change', loadTaken);
 

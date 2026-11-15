@@ -517,6 +517,7 @@ h1, h2, h3 {
 :root[data-theme="light"] .field input[type="date"] { color-scheme: light; }
 .field.is-invalid input, .field.is-invalid select, .field.is-invalid textarea { border-color: var(--pink); }
 .field__error { display: block; margin-top: 6px; font-size: .8rem; color: var(--pink); }
+.field__note { display: block; margin-top: 6px; font-size: .8rem; color: var(--cyan); }
 
 /* Выбор услуги — «таблетки» */
 .choice { display: flex; flex-wrap: wrap; gap: 8px; }

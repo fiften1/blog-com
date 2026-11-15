@@ -94,6 +94,31 @@ async function takenSlots(date) {
   return times;
 }
 
+// Типы закрытого дня: что увидят посетители сайта (подпись публичная, заметка — нет)
+const CLOSE_TYPES = {
+  dayoff: { label: 'Выходной', icon: '🌴' },
+  vacation: { label: 'Отпуск', icon: '✈️' },
+  busy: { label: 'Занято', icon: '🔒' }
+};
+const closeType = (b) => CLOSE_TYPES[b && b.closeType] || CLOSE_TYPES.busy;
+
+// Всё о дне для сайта: занятые слоты и (если день закрыт) публичная подпись
+async function dayInfo(date) {
+  const times = await takenSlots(date);
+  if (!times.includes(WHOLE_DAY)) return { taken: times, closed: null };
+  const id = await redis('HGET', `day:${date}`, WHOLE_DAY);
+  const b = id ? await getBooking(id) : null;
+  return { taken: times, closed: closeType(b).label };
+}
+
+// Все записи в промежутке дат (для календаря в Mini App)
+async function rangeBookings(from, to) {
+  const ids = await redis('ZRANGEBYSCORE', 'bookings', slotTs(from, '00:00'), slotTs(to, '23:59'));
+  if (!ids || !ids.length) return [];
+  const raws = await pipeline(ids.map((id) => ['GET', `bk:${id}`]));
+  return raws.filter(Boolean).map((raw) => JSON.parse(raw));
+}
+
 // Ближайшие записи (с вчерашнего дня и дальше)
 async function upcoming(limit = 15) {
   const ids = await redis('ZRANGEBYSCORE', 'bookings', Date.now() - 24 * 3600e3, '+inf', 'LIMIT', 0, limit);
@@ -124,6 +149,34 @@ async function tg(method, payload) {
 // Секрет вебхука выводится из токена бота — отдельную переменную заводить не нужно
 const webhookSecret = () => crypto.createHash('sha256').update(`webhook:${BOT()}`).digest('hex').slice(0, 48);
 
+// Адрес Mini App
+const appUrl = () => {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  return host ? `https://${host}/tg/` : null;
+};
+
+// Проверка, что запрос из Mini App пришёл от вас: подпись initData от Telegram
+// (алгоритм из документации Telegram: HMAC-SHA256 с ключом от токена бота)
+function verifyInitData(initData, maxAgeSec = 24 * 3600) {
+  if (!initData || typeof initData !== 'string' || !BOT()) return null;
+  const params = new URLSearchParams(initData);
+  const hash = params.get('hash');
+  if (!hash) return null;
+  params.delete('hash');
+  const check = [...params.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('\n');
+  const secret = crypto.createHmac('sha256', 'WebAppData').update(BOT()).digest();
+  const calc = crypto.createHmac('sha256', secret).update(check).digest('hex');
+  if (calc.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(calc), Buffer.from(hash))) return null;
+  const age = Date.now() / 1000 - Number(params.get('auth_date') || 0);
+  if (!(age < maxAgeSec)) return null;
+  try {
+    const user = JSON.parse(params.get('user') || 'null');
+    return user && String(user.id) === OWNER() ? user : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -146,8 +199,9 @@ const timeLabel = (t) => (t === WHOLE_DAY ? 'весь день' : t);
 // Текст сообщения о записи
 function bookingText(b, status = b.status) {
   const manual = b.source === 'manual';
-  const title = b.time === WHOLE_DAY ? 'День закрыт' : manual ? 'Записано вручную' : 'Новая заявка с сайта';
-  const icon = b.time === WHOLE_DAY ? '🚫' : manual ? '✍️' : '🆕';
+  const day = b.time === WHOLE_DAY ? closeType(b) : null;
+  const title = day ? `${day.label} — день закрыт` : manual ? 'Записано вручную' : 'Новая заявка с сайта';
+  const icon = day ? day.icon : manual ? '✍️' : '🆕';
   const head = status === 'cancelled' ? `<s>${title}</s>` : `${icon} <b>${title}</b>`;
   return [
     head,
@@ -181,18 +235,19 @@ function addDays(iso, n) {
 
 // Время для записи берём из content/site.json самого сайта (его меняют в админке)
 const DEFAULT_SLOTS = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
-async function siteSlots() {
+const DEFAULT_SERVICES = ['Создание сайта', 'Монтаж видео', 'Дизайн', 'Консультация', 'Другое'];
+async function siteConfig() {
   const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (!host) return DEFAULT_SLOTS;
-  try {
-    const r = await fetch(`https://${host}/content/site.json`, { cache: 'no-store' });
-    const site = await r.json();
-    const slots = Array.isArray(site.slots) ? site.slots.filter((s) => /^\d{1,2}:\d{2}$/.test(s)) : [];
-    return slots.length ? slots : DEFAULT_SLOTS;
-  } catch (e) {
-    return DEFAULT_SLOTS;
+  let site = {};
+  if (host) {
+    try { site = await (await fetch(`https://${host}/content/site.json`, { cache: 'no-store' })).json(); } catch (e) { site = {}; }
   }
+  const slots = Array.isArray(site.slots) ? site.slots.filter((s) => /^\d{1,2}:\d{2}$/.test(s)) : [];
+  const services = Array.isArray(site.services) ? site.services.filter(Boolean) : [];
+  return { slots: slots.length ? slots : DEFAULT_SLOTS, services: services.length ? services : DEFAULT_SERVICES };
 }
+const siteSlots = async () => (await siteConfig()).slots;
+const siteServices = async () => (await siteConfig()).services;
 
 // «Черновик» ручной записи: ждём, пока вы напишете имя/заметку
 const setPending = (chatId, data) => redis('SET', `pending:${chatId}`, JSON.stringify(data), 'EX', 900);
@@ -204,12 +259,16 @@ function bookingKeyboard(b, status = b.status) {
   if (!b.id || status === 'cancelled') return { inline_keyboard: [] };
   const row = [];
   if (status !== 'confirmed' && b.source !== 'manual') row.push({ text: '✅ Подтвердить', callback_data: `ok:${b.id}` });
-  row.push({ text: '❌ Отменить запись', callback_data: `cancel:${b.id}` });
-  return { inline_keyboard: [row] };
+  row.push({ text: b.time === WHOLE_DAY ? '↩️ Открыть день' : '❌ Отменить запись', callback_data: `cancel:${b.id}` });
+  const rows = [row];
+  const url = appUrl();
+  if (url) rows.push([{ text: '📅 Открыть календарь', web_app: { url: `${url}#${b.date}` } }]);
+  return { inline_keyboard: rows };
 }
 
 module.exports = {
   hasDb, redis, pipeline, reserve, getBooking, saveBooking, cancel, takenSlots, upcoming,
   tg, BOT, OWNER, webhookSecret, esc, humanDate, timeLabel, bookingText, bookingKeyboard,
-  WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending
+  WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending,
+  CLOSE_TYPES, closeType, dayInfo, rangeBookings, appUrl, verifyInitData, siteServices
 };

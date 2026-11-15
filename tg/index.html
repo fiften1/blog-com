@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Записи</title>
+  <!-- Mini App для Telegram: календарь записей. Данные — через /api/app, только для владельца бота -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --violet: #a855f7; --cyan: #22d3ee; --pink: #ec4899; --accent: var(--violet);
+      --bg: #0a0a12; --bg-soft: #11111b; --surface: rgba(255,255,255,.03); --surface-2: rgba(255,255,255,.06);
+      --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.16);
+      --text: #d9d9e3; --muted: #8a8a9c; --faint: #5c5c6e; --heading: #f5f5f8;
+      --sheet: #12121c; --danger: #f43f5e;
+      --font-head: 'Space Grotesk', system-ui, sans-serif; --font: 'Inter', system-ui, sans-serif;
+      --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+      --ease: cubic-bezier(.22, 1, .36, 1);
+    }
+    :root[data-theme="light"] {
+      --violet: #7c3aed; --cyan: #0e7490; --pink: #be185d;
+      --bg: #f7f7f5; --bg-soft: #efefec; --surface: rgba(0,0,0,.025); --surface-2: rgba(0,0,0,.05);
+      --line: rgba(0,0,0,.08); --line-strong: rgba(0,0,0,.18);
+      --text: #2a2a33; --muted: #6b6b78; --faint: #9a9aa6; --heading: #0f0f14; --sheet: #ffffff; --danger: #e11d48;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+    body { min-height: 100vh; padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); overflow-x: hidden; }
+    body.is-locked { overflow: hidden; }
+    button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+    h1, h2, h3 { font-family: var(--font-head); font-weight: 500; color: var(--heading); letter-spacing: -.02em; margin: 0; }
+
+    /* фон */
+    .glow { position: fixed; z-index: -1; width: 70vmax; height: 70vmax; left: -30vmax; top: -45vmax; border-radius: 50%;
+      background: radial-gradient(circle, var(--violet), transparent 65%); opacity: .14; filter: blur(60px); pointer-events: none; }
+
+    /* шапка */
+    .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+    .top h1 { font-size: 28px; }
+    .stats { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+    .stats b { color: var(--heading); font-weight: 500; }
+    .month { display: flex; align-items: center; gap: 4px; }
+    .month span { min-width: 112px; text-align: center; font-family: var(--font-head); color: var(--heading); text-transform: capitalize; }
+    .icon-btn { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); color: var(--muted); transition: border-color .2s, color .2s; }
+    .icon-btn:active { border-color: var(--accent); color: var(--heading); }
+    .icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* календарь */
+    .cal { border: 1px solid var(--line); border-radius: 16px; padding: 10px; background: var(--surface); }
+    .cal__head, .cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal__head span { text-align: center; font: 11px var(--mono); color: var(--faint); padding: 2px 0 6px; text-transform: lowercase; }
+    .day {
+      position: relative; aspect-ratio: 1 / 1.05; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+      font-size: 15px; color: var(--text); transition: background .2s, transform .15s var(--ease);
+    }
+    .day:active { transform: scale(.94); }
+    .day.is-other { color: var(--faint); opacity: .45; }
+    .day.is-past { color: var(--faint); }
+    .day.is-today { box-shadow: inset 0 0 0 1px var(--line-strong); }
+    .day.is-selected { background: var(--accent); color: #fff; box-shadow: 0 0 18px rgba(168,85,247,.35); }
+    .day.is-closed:not(.is-selected) { background: var(--surface-2); }
+    .day__mark { height: 6px; display: flex; gap: 3px; align-items: center; font-size: 9px; line-height: 1; }
+    .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+    .dot.is-site { background: var(--cyan); }
+    .day.is-selected .dot { background: #fff; }
+
+    /* день */
+    .dayview { margin-top: 18px; }
+    .dayview__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .dayview__head h2 { font-size: 21px; text-transform: none; }
+    .badge { font: 11px var(--mono); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+    .slots { display: grid; gap: 6px; }
+    .slot {
+      display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 12px; text-align: left;
+      padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+      transition: border-color .2s, background .2s, transform .15s var(--ease);
+    }
+    .slot:active { transform: scale(.985); }
+    .slot__time { font: 500 14px var(--mono); color: var(--heading); }
+    .slot__main { min-width: 0; }
+    .slot__name { display: block; color: var(--heading); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .slot__sub { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .slot__act { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); }
+    .slot__act svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+    .slot.is-free .slot__name { color: var(--muted); font-weight: 400; }
+    .slot.is-free .slot__act { border: 1px dashed var(--line-strong); }
+    .slot.is-past { opacity: .4; pointer-events: none; }
+    .slot.is-booked { border-color: rgba(168,85,247,.35); background: rgba(168,85,247,.06); }
+    .slot.is-booked.is-site { border-color: rgba(34,211,238,.35); background: rgba(34,211,238,.05); }
+    .tag { display: inline-block; font: 10px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 1px 6px; border-radius: 4px; margin-right: 6px; vertical-align: 1px; border: 1px solid currentColor; }
+    .tag--site { color: var(--cyan); }
+    .tag--manual { color: var(--violet); }
+    .tag--ok { color: #22c55e; }
+
+    .closed { padding: 22px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); text-align: center; }
+    .closed__icon { font-size: 34px; line-height: 1; }
+    .closed h3 { font-size: 20px; margin: 10px 0 4px; }
+    .closed p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+
+    .actions { display: flex; gap: 8px; margin-top: 14px; }
+    .btn { flex: 1; padding: 13px 16px; border-radius: 12px; font-weight: 500; text-align: center; border: 1px solid var(--line-strong); color: var(--heading); transition: transform .15s var(--ease), box-shadow .2s, border-color .2s; }
+    .btn:active { transform: scale(.97); }
+    .btn--primary { background: var(--heading); color: var(--bg); border-color: transparent; }
+    .btn--accent { background: var(--accent); color: #fff; border-color: transparent; box-shadow: 0 0 20px rgba(168,85,247,.3); }
+    .btn--danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+    .btn[disabled] { opacity: .5; pointer-events: none; }
+
+    /* нижний лист */
+    .sheet { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; visibility: hidden; }
+    .sheet.is-open { visibility: visible; }
+    .sheet__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); opacity: 0; transition: opacity .3s; }
+    .sheet.is-open .sheet__backdrop { opacity: 1; }
+    .sheet__panel {
+      position: relative; width: 100%; max-height: 90vh; overflow-y: auto; overscroll-behavior: contain;
+      background: var(--sheet); border-radius: 20px 20px 0 0; border-top: 1px solid var(--line);
+      padding: 8px 18px calc(22px + env(safe-area-inset-bottom));
+      transform: translateY(100%); transition: transform .4s var(--ease);
+    }
+    .sheet.is-open .sheet__panel { transform: none; }
+    .sheet__grip { width: 40px; height: 4px; border-radius: 4px; background: var(--line-strong); margin: 4px auto 14px; }
+    .sheet h3 { font-size: 20px; margin-bottom: 4px; }
+    .sheet__sub { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+
+    .label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
+    .input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--heading); font: inherit; outline: 0; -webkit-appearance: none; }
+    .input:focus { border-color: var(--accent); }
+    textarea.input { resize: none; min-height: 72px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { padding: 8px 13px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); font-size: 14px; transition: all .2s; }
+    .chip.is-on { color: var(--heading); border-color: var(--accent); background: rgba(168,85,247,.1); }
+    .chip--big { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px; border-radius: 14px; }
+    .chip--big b { font-size: 24px; line-height: 1; font-weight: 400; }
+    .hint { font-size: 12px; color: var(--faint); margin: 8px 2px 0; }
+
+    .info { display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-top: 4px; }
+    .info__row { display: flex; justify-content: space-between; gap: 14px; padding: 12px 14px; background: var(--surface); }
+    .info__row span { color: var(--muted); font-size: 13px; flex: none; }
+    .info__row b { font-weight: 500; color: var(--heading); text-align: right; overflow-wrap: anywhere; }
+    .info__row a { color: var(--accent); text-decoration: none; }
+
+    /* тост и состояния */
+    .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 80; translate: -50% 20px; opacity: 0;
+      padding: 10px 16px; border-radius: 12px; background: var(--heading); color: var(--bg); font-size: 14px; transition: opacity .3s, translate .3s var(--ease); pointer-events: none; white-space: nowrap; }
+    .toast.is-on { opacity: 1; translate: -50% 0; }
+    .state { padding: 60px 20px; text-align: center; color: var(--muted); }
+    .state h2 { font-size: 22px; margin-bottom: 8px; }
+    .skeleton { height: 46px; border-radius: 12px; background: linear-gradient(90deg, var(--surface), var(--surface-2), var(--surface)); background-size: 200% 100%; animation: sk 1.2s infinite; }
+    @keyframes sk { to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="glow" aria-hidden="true"></div>
+  <main id="app"></main>
+
+  <div class="sheet" id="sheet" aria-hidden="true">
+    <div class="sheet__backdrop" data-close></div>
+    <div class="sheet__panel" role="dialog" aria-modal="true">
+      <div class="sheet__grip"></div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+  (() => {
+    'use strict';
+    const tg = window.Telegram && window.Telegram.WebApp;
+    const $ = (s, r = document) => r.querySelector(s);
+    const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const haptic = (t = 'light') => { try { tg.HapticFeedback.impactOccurred(t); } catch (e) {} };
+    const notifyHaptic = (t) => { try { tg.HapticFeedback.notificationOccurred(t); } catch (e) {} };
+
+    const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+    const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    const WEEK = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+    const WEEK_FULL = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+    const WHOLE = '*';
+    const ICON = {
+      prev: '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>',
+      next: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+      plus: '<svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg>',
+      more: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>'
+    };
+
+    // ---- даты (ISO-строки ГГГГ-ММ-ДД, без часовых поясов) ----
+    const pad = (n) => String(n).padStart(2, '0');
+    const iso = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+    const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return { y, m: m - 1, d }; };
+    const addDays = (s, n) => { const { y, m, d } = parse(s); const t = new Date(Date.UTC(y, m, d + n)); return t.toISOString().slice(0, 10); };
+    const weekday = (s) => { const { y, m, d } = parse(s); return new Date(Date.UTC(y, m, d)).getUTCDay(); };
+    const human = (s) => { const { m, d } = parse(s); return `${d} ${MONTHS_GEN[m]}`; };
+    const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+    const state = {
+      today: null, nowMin: 0, view: null, selected: null,
+      slots: [], services: [], closeTypes: {}, bookings: [], loading: true, error: null
+    };
+
+    // ---- API ----
+    async function api(action, data = {}) {
+      const r = await fetch('/api/app', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, initData: tg ? tg.initData : '', ...data })
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.ok) throw Object.assign(new Error(out.error || 'Ошибка сети'), { status: r.status });
+      return out;
+    }
+
+    function gridRange(view) {
+      const first = iso(view.y, view.m, 1);
+      const start = addDays(first, -((weekday(first) + 6) % 7)); // понедельник
+      return { start, end: addDays(start, 41) };
+    }
+
+    async function loadMonth() {
+      const { start, end } = gridRange(state.view);
+      state.loading = true; render();
+      try {
+        const out = await api('month', { from: start, to: end });
+        Object.assign(state, { today: out.today, nowMin: out.nowMinutes, slots: out.slots, services: out.services, closeTypes: out.closeTypes, bookings: out.bookings, error: null });
+      } catch (e) {
+        state.error = e;
+      }
+      state.loading = false;
+      render();
+    }
+
+    const byDate = (date) => state.bookings.filter((b) => b.date === date);
+    const closedOf = (date) => byDate(date).find((b) => b.time === WHOLE);
+
+    // ---- отрисовка ----
+    function render() {
+      const app = $('#app');
+      if (state.error && state.error.status === 401) {
+        app.innerHTML = `<div class="state"><h2>Только для владельца</h2><p>Откройте календарь из своего бота в Telegram.</p></div>`;
+        return;
+      }
+      const v = state.view;
+      const { start } = gridRange(v);
+      const today = state.today;
+      const sel = state.selected;
+
+      // статистика на сегодня
+      const todays = today ? byDate(today).filter((b) => b.time !== WHOLE).sort((a, b) => toMin(a.time) - toMin(b.time)) : [];
+      const next = todays.find((b) => toMin(b.time) >= state.nowMin);
+      const stats = !today ? '&nbsp;' : closedOf(today)
+        ? `Сегодня: <b>${esc(state.closeTypes[closedOf(today).closeType]?.label || 'закрыто')}</b>`
+        : `Сегодня: <b>${todays.length ? todays.length + ' ' + plural(todays.length, ['запись', 'записи', 'записей']) : 'записей нет'}</b>` +
+          (next ? ` · следующая в <b>${esc(next.time)}</b>${next.name ? ' — ' + esc(next.name) : ''}` : '');
+
+      let cells = '';
+      for (let i = 0; i < 42; i++) {
+        const date = addDays(start, i);
+        const p = parse(date);
+        const list = byDate(date);
+        const closed = list.find((b) => b.time === WHOLE);
+        const items = list.filter((b) => b.time !== WHOLE);
+        const cls = ['day',
+          p.m !== v.m && 'is-other', today && date < today && 'is-past', date === today && 'is-today',
+          date === sel && 'is-selected', closed && 'is-closed'].filter(Boolean).join(' ');
+        const mark = closed
+          ? (state.closeTypes[closed.closeType]?.icon || '🔒')
+          : items.slice(0, 3).map((b) => `<i class="dot ${b.source === 'site' ? 'is-site' : ''}"></i>`).join('');
+        cells += `<button class="${cls}" data-date="${date}" aria-label="${human(date)}"><span>${p.d}</span><span class="day__mark">${mark}</span></button>`;
+      }
+
+      app.innerHTML = `
+        <div class="top">
+          <h1>Записи</h1>
+          <div class="month">
+            <button class="icon-btn" data-nav="-1" aria-label="Предыдущий месяц">${ICON.prev}</button>
+            <span>${MONTHS[v.m]} ${v.y !== parse(today || iso(v.y, v.m, 1)).y ? v.y : ''}</span>
+            <button class="icon-btn" data-nav="1" aria-label="Следующий месяц">${ICON.next}</button>
+          </div>
+        </div>
+        <p class="stats">${stats}</p>
+        <div class="cal">
+          <div class="cal__head">${WEEK.map((w) => `<span>${w}</span>`).join('')}</div>
+          <div class="cal__grid">${cells}</div>
+        </div>
+        <section class="dayview">${state.loading && !state.bookings.length ? skeleton() : dayView(sel)}</section>`;
+    }
+
+    const skeleton = () => `<div class="slots">${'<div class="skeleton"></div>'.repeat(5)}</div>`;
+    const plural = (n, f) => f[(n % 10 === 1 && n % 100 !== 11) ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2];
+
+    function dayView(date) {
+      if (!date) return '';
+      const list = byDate(date);
+      const closed = list.find((b) => b.time === WHOLE);
+      const isPastDay = state.today && date < state.today;
+      const isToday = date === state.today;
+      const head = `<div class="dayview__head"><h2>${WEEK_FULL[weekday(date)]}, ${human(date)}</h2>${isToday ? '<span class="badge">сегодня</span>' : ''}</div>`;
+
+      if (closed) {
+        const t = state.closeTypes[closed.closeType] || { icon: '🔒', label: 'Занято' };
+        const others = list.filter((b) => b.time !== WHOLE);
+        return head + `
+          <div class="closed">
+            <div class="closed__icon">${t.icon}</div>
+            <h3>${esc(t.label)}</h3>
+            <p>${closed.name ? esc(closed.name) + '<br>' : ''}На сайте этот день показан как «${esc(t.label)}».</p>
+            <button class="btn" data-open-day="${closed.id}">Открыть день для записи</button>
+          </div>
+          ${others.length ? `<p class="hint" style="margin-top:14px">Записи, сделанные до закрытия:</p><div class="slots" style="margin-top:6px">${others.map((b) => slotRow(b.time, b, false)).join('')}</div>` : ''}`;
+      }
+
+      const times = [...new Set([...state.slots, ...list.map((b) => b.time)])].sort((a, b) => toMin(a) - toMin(b));
+      // Прошедшие свободные слоты не показываем — только записи и будущее время
+      const rows = times.map((t) => {
+        const b = list.find((x) => x.time === t);
+        const past = isPastDay || (isToday && toMin(t) < state.nowMin);
+        return !b && past ? '' : slotRow(t, b, past);
+      }).join('');
+      const empty = `<p class="hint" style="text-align:center;padding:18px 0">${isPastDay ? 'В этот день записей не было.' : 'На сегодня свободного времени больше нет.'}</p>`;
+      return head + `<div class="slots">${rows || empty}</div>` +
+        (isPastDay ? '' : `<div class="actions"><button class="btn" data-close-day="${date}">Закрыть день</button></div>`);
+    }
+
+    function slotRow(time, b, past) {
+      if (!b) {
+        return `<button class="slot is-free ${past ? 'is-past' : ''}" data-add="${time}">
+          <span class="slot__time">${esc(time)}</span>
+          <span class="slot__main"><span class="slot__name">${past ? 'прошло' : 'Свободно'}</span></span>
+          <span class="slot__act">${ICON.plus}</span></button>`;
+      }
+      const tags = (b.source === 'site' ? '<span class="tag tag--site">сайт</span>' : '<span class="tag tag--manual">вручную</span>') +
+        (b.status === 'confirmed' ? '<span class="tag tag--ok">✓</span>' : '');
+      const sub = [b.service, b.phone].filter(Boolean).map(esc).join(' · ');
+      return `<button class="slot is-booked ${b.source === 'site' ? 'is-site' : ''}" data-booking="${b.id}">
+        <span class="slot__time">${esc(time)}</span>
+        <span class="slot__main"><span class="slot__name">${esc(b.name || 'Без имени')}</span><span class="slot__sub">${tags}${sub}</span></span>
+        <span class="slot__act">${ICON.more}</span></button>`;
+    }
+
+    // ---- нижние листы ----
+    const sheet = $('#sheet');
+    function openSheet(html, onMount) {
+      $('#sheetBody').innerHTML = html;
+      sheet.classList.add('is-open'); sheet.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('is-locked');
+      try { tg.BackButton.show(); } catch (e) {}
+      if (onMount) onMount($('#sheetBody'));
+    }
+    function closeSheet() {
+      sheet.classList.remove('is-open'); sheet.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('is-locked');
+      try { tg.BackButton.hide(); } catch (e) {}
+    }
+    sheet.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
+    if (tg) tg.BackButton.onClick(closeSheet);
+
+    function sheetAdd(date, time) {
+      const list = byDate(date);
+      const free = state.slots.filter((t) => !list.some((b) => b.time === t) && !(date === state.today && toMin(t) < state.nowMin));
+      let chosen = time || free[0];
+      let service = '';
+      openSheet(`
+        <h3>Записать вручную</h3>
+        <p class="sheet__sub">${WEEK_FULL[weekday(date)]}, ${human(date)}</p>
+        <span class="label">Время</span>
+        <div class="chips" id="fTime">${free.map((t) => `<button class="chip ${t === chosen ? 'is-on' : ''}" data-v="${t}">${t}</button>`).join('') || '<span class="hint">Свободного времени нет</span>'}</div>
+        <label class="label" for="fName">Кто записался</label>
+        <input class="input" id="fName" placeholder="Имя" maxlength="120" autocomplete="off">
+        <label class="label" for="fPhone">Телефон</label>
+        <input class="input" id="fPhone" type="tel" placeholder="Необязательно" maxlength="30">
+        <span class="label">Услуга</span>
+        <div class="chips" id="fService">${state.services.map((s) => `<button class="chip" data-v="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+        <label class="label" for="fNote">Заметка</label>
+        <textarea class="input" id="fNote" placeholder="Необязательно — видна только вам" maxlength="500"></textarea>
+        <div class="actions"><button class="btn btn--accent" id="fSave" ${free.length ? '' : 'disabled'}>Записать</button></div>`, (root) => {
+        $('#fTime', root).addEventListener('click', (e) => {
+          const c = e.target.closest('.chip'); if (!c) return;
+          haptic(); chosen = c.dataset.v;
+          root.querySelectorAll('#fTime .chip').forEach((x) => x.classList.toggle('is-on', x === c));
+        });
+        $('#fService', root).addEventListener('click', (e) => {
+          const c = e.target.closest('.chip'); if (!c) return;
+          haptic(); service = service === c.dataset.v ? '' : c.dataset.v;
+          root.querySelectorAll('#fService .chip').forEach((x) => x.classList.toggle('is-on', x.dataset.v === service));
+        });
+        $('#fSave', root).addEventListener('click', async (e) => {
+          const btn = e.currentTarget; btn.disabled = true;
+          try {
+            const out = await api('add', { date, time: chosen, name: $('#fName', root).value, phone: $('#fPhone', root).value, service, comment: $('#fNote', root).value });
+            state.bookings.push(out.booking);
+            closeSheet(); render(); toast(`Записано на ${chosen}`); notifyHaptic('success');
+          } catch (err) { toast(err.message); notifyHaptic('error'); btn.disabled = false; if (err.status === 409) loadMonth(); }
+        });
+      });
+    }
+
+    function sheetClose(date) {
+      const types = state.closeTypes;
+      let type = 'dayoff';
+      const count = byDate(date).filter((b) => b.time !== WHOLE).length;
+      openSheet(`
+        <h3>Закрыть день</h3>
+        <p class="sheet__sub">${WEEK_FULL[weekday(date)]}, ${human(date)}</p>
+        <div class="chips" id="cType">${Object.entries(types).map(([k, t]) => `<button class="chip chip--big ${k === type ? 'is-on' : ''}" data-v="${k}"><b>${t.icon}</b>${esc(t.label)}</button>`).join('')}</div>
+        <p class="hint" id="cHint">Посетители сайта увидят: «${esc(types[type].label)}»</p>
+        <label class="label" for="cNote">Заметка для себя</label>
+        <input class="input" id="cNote" placeholder="Необязательно — на сайте не видна" maxlength="200">
+        ${count ? `<p class="hint">На этот день уже ${count} ${plural(count, ['запись', 'записи', 'записей'])} — ${count === 1 ? 'она останется' : 'они останутся'}.</p>` : ''}
+        <div class="actions"><button class="btn btn--accent" id="cSave">Закрыть день</button></div>`, (root) => {
+        $('#cType', root).addEventListener('click', (e) => {
+          const c = e.target.closest('.chip'); if (!c) return;
+          haptic(); type = c.dataset.v;
+          root.querySelectorAll('#cType .chip').forEach((x) => x.classList.toggle('is-on', x === c));
+          $('#cHint', root).textContent = `Посетители сайта увидят: «${types[type].label}»`;
+        });
+        $('#cSave', root).addEventListener('click', async (e) => {
+          const btn = e.currentTarget; btn.disabled = true;
+          try {
+            const out = await api('close', { date, type, note: $('#cNote', root).value });
+            state.bookings.push(out.booking);
+            closeSheet(); render(); toast(`${types[type].icon} День закрыт`); notifyHaptic('success');
+          } catch (err) { toast(err.message); notifyHaptic('error'); btn.disabled = false; }
+        });
+      });
+    }
+
+    function sheetBooking(id) {
+      const b = state.bookings.find((x) => x.id === id);
+      if (!b) return;
+      const row = (k, v) => (v ? `<div class="info__row"><span>${k}</span><b>${v}</b></div>` : '');
+      const phoneLink = b.phone ? `<a href="tel:${esc(b.phone.replace(/[^\d+]/g, ''))}">${esc(b.phone)}</a>` : '';
+      const mailLink = b.email ? `<a href="mailto:${esc(b.email)}">${esc(b.email)}</a>` : '';
+      openSheet(`
+        <h3>${esc(b.name || 'Без имени')}</h3>
+        <p class="sheet__sub">${WEEK_FULL[weekday(b.date)]}, ${human(b.date)} · ${esc(b.time)} · ${b.source === 'site' ? 'с сайта' : 'вручную'}${b.status === 'confirmed' ? ' · ✅ подтверждено' : ''}</p>
+        <div class="info">
+          ${row('Услуга', esc(b.service))}${row('Телефон', phoneLink)}${row('Почта', mailLink)}${row('Комментарий', esc(b.comment))}
+        </div>
+        <div class="actions">
+          ${b.source === 'site' && b.status !== 'confirmed' ? '<button class="btn btn--primary" id="bOk">Подтвердить</button>' : ''}
+          <button class="btn btn--danger" id="bCancel">Отменить</button>
+        </div>`, (root) => {
+        const ok = $('#bOk', root);
+        if (ok) ok.addEventListener('click', async () => {
+          ok.disabled = true;
+          try { const out = await api('confirm', { id }); Object.assign(b, out.booking); closeSheet(); render(); toast('Подтверждено'); notifyHaptic('success'); }
+          catch (err) { toast(err.message); ok.disabled = false; }
+        });
+        $('#bCancel', root).addEventListener('click', () => confirmThen(`Отменить запись на ${b.time}? Время снова станет свободным на сайте.`, async () => {
+          try { await api('cancel', { id }); state.bookings = state.bookings.filter((x) => x.id !== id); closeSheet(); render(); toast('Запись отменена'); notifyHaptic('success'); }
+          catch (err) { toast(err.message); loadMonth(); }
+        }));
+      });
+    }
+
+    function confirmThen(text, fn) {
+      if (tg && tg.showConfirm && tg.isVersionAtLeast && tg.isVersionAtLeast('6.2')) tg.showConfirm(text, (yes) => yes && fn());
+      else if (window.confirm(text)) fn();
+    }
+
+    // ---- события ----
+    $('#app').addEventListener('click', (e) => {
+      const day = e.target.closest('[data-date]');
+      if (day) {
+        haptic();
+        state.selected = day.dataset.date;
+        const p = parse(day.dataset.date);
+        if (p.m !== state.view.m || p.y !== state.view.y) { state.view = { y: p.y, m: p.m }; loadMonth(); } else render();
+        $('.dayview') && $('.dayview').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
+      const nav = e.target.closest('[data-nav]');
+      if (nav) {
+        haptic();
+        const d = new Date(Date.UTC(state.view.y, state.view.m + Number(nav.dataset.nav), 1));
+        state.view = { y: d.getUTCFullYear(), m: d.getUTCMonth() };
+        state.selected = iso(state.view.y, state.view.m, 1) <= state.today && state.today <= iso(state.view.y, state.view.m, 31) ? state.today : iso(state.view.y, state.view.m, 1);
+        loadMonth();
+        return;
+      }
+      const add = e.target.closest('[data-add]');
+      if (add) { haptic(); return sheetAdd(state.selected, add.dataset.add); }
+      const bk = e.target.closest('[data-booking]');
+      if (bk) { haptic(); return sheetBooking(bk.dataset.booking); }
+      const cd = e.target.closest('[data-close-day]');
+      if (cd) { haptic(); return sheetClose(cd.dataset.closeDay); }
+      const od = e.target.closest('[data-open-day]');
+      if (od) {
+        haptic();
+        return confirmThen('Открыть день? На сайте снова можно будет записаться.', async () => {
+          try { await api('cancel', { id: od.dataset.openDay }); state.bookings = state.bookings.filter((x) => x.id !== od.dataset.openDay); render(); toast('День открыт'); notifyHaptic('success'); }
+          catch (err) { toast(err.message); loadMonth(); }
+        });
+      }
+    });
+
+    let toastTimer;
+    function toast(text) {
+      const t = $('#toast'); t.textContent = text; t.classList.add('is-on');
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('is-on'), 2200);
+    }
+
+    // ---- старт ----
+    function applyTheme() {
+      const dark = !tg || tg.colorScheme !== 'light';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      try { const c = dark ? '#0a0a12' : '#f7f7f5'; tg.setHeaderColor(c); tg.setBackgroundColor(c); } catch (e) {}
+    }
+    if (tg) { tg.ready(); tg.expand(); applyTheme(); tg.onEvent('themeChanged', applyTheme); }
+
+    if (!tg || !tg.initData) {
+      $('#app').innerHTML = '<div class="state"><h2>Календарь записей</h2><p>Эта страница открывается внутри Telegram — через кнопку в вашем боте.</p></div>';
+      return;
+    }
+
+    const hash = location.hash.slice(1);
+    const local = new Date();
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(hash) ? hash : iso(local.getFullYear(), local.getMonth(), local.getDate());
+    const p = parse(start);
+    state.view = { y: p.y, m: p.m };
+    state.selected = start;
+    loadMonth();
+  })();
+  </script>
+</body>
+</html>
