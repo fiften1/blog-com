@@ -175,6 +175,7 @@
     external: '<svg class="link-card__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>',
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.5-4.6-9.3-9.2C1.4 7.8 3.4 4.5 6.8 4.5c2.1 0 3.6 1.2 5.2 3.1 1.6-1.9 3.1-3.1 5.2-3.1 3.4 0 5.4 3.3 4.1 6.6-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>',
     pdf: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
     zip: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M1 3h22v5H1zM10 12h4"/></svg>',
     image: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
@@ -192,6 +193,15 @@
     return `data-search="${esc(text)}" data-tags="${esc(tags)}"`;
   };
 
+  // Постоянный id поста для лайков (поле id из админки; для старых постов — хеш даты и заголовка)
+  const postId = (p) => {
+    if (p.id) return String(p.id);
+    let h = 0;
+    for (const ch of `${p.date}|${p.title}`) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return `p-${h.toString(36)}`;
+  };
+  const likeButton = (p) => `<button class="like" type="button" data-like="${esc(postId(p))}" aria-pressed="false" aria-label="Нравится" hidden>${ICONS.heart}<span class="like__count"></span></button>`;
+
   /* ---------- 2. РЕНДЕР КАРТОЧЕК ---------- */
   function renderPosts() {
     $('#postsGrid').innerHTML = DATA.posts.map((p, i) => `
@@ -205,7 +215,10 @@
           <h3 class="card__title">${esc(p.title)}</h3>
           <p class="card__text">${esc(p.excerpt)}</p>
           ${tagsHTML(p.tags)}
-          <span class="read-more">Читать ${ICONS.arrow}</span>
+          <div class="post-card__foot">
+            <span class="read-more">Читать ${ICONS.arrow}</span>
+            ${likeButton(p)}
+          </div>
         </div>
       </article>`).join('');
   }
@@ -376,7 +389,8 @@
     const cover = $('#modalCover');
     cover.src = p.cover; cover.alt = p.alt || p.title;
     $('#modalTitle').textContent = p.title;
-    $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"');
+    $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"') + likeButton(p);
+    likes.paint();
     $('#modalContent').innerHTML = markdown(p.body || p.excerpt || '');
 
     // Блокируем прокрутку страницы, компенсируя ширину скроллбара
@@ -769,6 +783,70 @@
     kick();
   }
 
+  /* ---------- 14. ЛАЙКИ ПОСТОВ ---------- */
+  // Счётчики хранятся на сервере (/api/likes); на GitHub Pages и без базы кнопки скрыты
+  const likes = (() => {
+    const state = { enabled: false, counts: {}, liked: {} };
+    const LS = 'likedPosts';
+    try { Object.assign(state.liked, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) { /* ничего */ }
+    const save = () => { try { localStorage.setItem(LS, JSON.stringify(state.liked)); } catch (e) { /* ничего */ } };
+    const short = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',')}k` : n ? String(n) : '');
+
+    // Обновить все кнопки (на карточке и в открытом посте)
+    function paint(id) {
+      $$(id ? `[data-like="${CSS.escape(id)}"]` : '[data-like]').forEach((btn) => {
+        const k = btn.dataset.like;
+        btn.hidden = !state.enabled;
+        const on = !!state.liked[k];
+        btn.classList.toggle('is-on', on);
+        btn.setAttribute('aria-pressed', on);
+        btn.setAttribute('aria-label', on ? 'Убрать лайк' : 'Нравится');
+        btn.querySelector('.like__count').textContent = short(state.counts[k] || 0);
+      });
+    }
+
+    async function load() {
+      const ids = [...new Set($$('[data-like]').map((b) => b.dataset.like))];
+      if (!ids.length) return;
+      try {
+        const r = await fetch(`/api/likes?ids=${ids.map(encodeURIComponent).join(',')}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const out = await r.json();
+        if (!out.enabled) return;
+        state.enabled = true;
+        Object.assign(state.counts, out.counts);
+        // сервер — главный источник: что он не знает как «ваш лайк», снимаем
+        ids.forEach((id) => { if (out.liked[id]) state.liked[id] = true; else delete state.liked[id]; });
+        save();
+        paint();
+      } catch (e) { /* нет сервера — лайки не показываем */ }
+    }
+
+    // Нажатие: сразу меняем вид, потом сверяемся с сервером
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-like]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.dataset.like;
+      const like = !state.liked[id];
+      if (like) state.liked[id] = true; else delete state.liked[id];
+      state.counts[id] = Math.max(0, (state.counts[id] || 0) + (like ? 1 : -1));
+      save();
+      paint(id);
+      if (like && !reducedMotion) {
+        $$(`[data-like="${CSS.escape(id)}"]`).forEach((b) => { b.classList.remove('is-pop'); void b.offsetWidth; b.classList.add('is-pop'); });
+      }
+      try {
+        const r = await fetch('/api/likes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, like }) });
+        const out = await r.json();
+        if (r.ok && out.ok) { state.counts[id] = out.count; paint(id); }
+      } catch (err) { /* оставляем как есть */ }
+    }, true);
+
+    return { load, paint };
+  })();
+
   /* ---------- 13. ЗАПИСЬ: АНКЕТА → TELEGRAM ---------- */
   // Услуги и время берутся из content/site.json (редактируются в админке)
   const DEFAULT_SERVICES = ['Создание сайта', 'Монтаж видео', 'Дизайн', 'Консультация', 'Другое'];
@@ -1039,6 +1117,7 @@
     renderVideos();
     renderLinks();
     renderChips();
+    likes.load();
     applyFilters();
     if (!ok) {
       $$('.empty').forEach((el) => {

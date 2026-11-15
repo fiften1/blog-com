@@ -1,6 +1,7 @@
 {
   "posts": [
     {
+      "id": "pqc7pbedrnsb254b7rvs7govve",
       "title": "Я и лапочка",
       "date": "2026-11-15",
       "cover": "/images/IMG_6134.jpeg",
@@ -10,6 +11,7 @@
       "body": "Идеи домой"
     },
     {
+      "id": "gk2wtd4whda26g6wf5fwwj457b",
       "title": "Ночной город как источник вдохновения",
       "date": "2026-11-08",
       "cover": "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=900&q=75",

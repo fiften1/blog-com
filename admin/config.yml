@@ -42,6 +42,7 @@ collections:
             collapsed: true
             summary: "{{fields.date}} · {{fields.title}}"
             fields:
+              - { name: id, label: ID поста (для лайков; создаётся сам, не менять), widget: uuid, use_b32_encoding: true }
               - { name: title, label: Заголовок, widget: string }
               - { name: date, label: Дата, widget: datetime, format: YYYY-MM-DD, time_format: false }
               - name: cover

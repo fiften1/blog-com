@@ -420,6 +420,36 @@ h1, h2, h3 {
 .read-more { display: inline-flex; align-items: center; gap: 6px; font-size: .86rem; color: var(--heading); }
 .read-more svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; transition: transform .3s var(--ease); }
 .post-card:hover .read-more { color: var(--accent); }
+
+/* Низ карточки: «Читать» слева, лайк справа */
+.post-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* Лайк */
+.like {
+  position: relative; z-index: 5; /* выше невидимой кнопки, открывающей пост */
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--text-muted); font: 500 .85rem var(--font-body); font-variant-numeric: tabular-nums;
+  transition: color .2s, border-color .2s, background .2s, box-shadow .3s;
+}
+.like[hidden] { display: none; }
+.like svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; transition: transform .3s var(--ease); }
+.like__count:empty { display: none; }
+.like:hover { color: var(--pink); border-color: rgba(236, 72, 153, .45); }
+.like.is-on { color: var(--pink); border-color: rgba(236, 72, 153, .45); background: rgba(236, 72, 153, .08); }
+.like.is-on svg { fill: currentColor; }
+.like.is-on:hover { box-shadow: 0 0 16px rgba(236, 72, 153, .25); }
+/* «вспышка» при лайке */
+.like::after {
+  content: ''; position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px;
+  border-radius: 50%; border: 2px solid var(--pink); opacity: 0; pointer-events: none;
+}
+.like.is-pop svg { animation: likePop .45s var(--ease); }
+.like.is-pop::after { animation: likeRing .55s var(--ease); }
+@keyframes likePop { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes likeRing { 0% { opacity: .8; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.4); } }
+#modalMeta .like { margin-left: auto; }
 .post-card:hover .read-more svg { transform: translateX(4px); }
 
 /* Файл */
