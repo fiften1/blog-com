@@ -66,6 +66,9 @@ function layout({ title, intro, b, button, note }) {
   return html;
 }
 
+// «Сегодня» / «Завтра» — напоминание может прийти до полуночи о записи после неё
+const soonDay = (b) => (b.date === lib.todayISO() ? 'Сегодня' : b.date === lib.addDays(lib.todayISO(), 1) ? 'Завтра' : lib.humanDate(b.date, true));
+
 const TEMPLATES = {
   // сразу после заявки с сайта
   received: (b) => ({
@@ -93,9 +96,9 @@ const TEMPLATES = {
   }),
   // за час до записи
   soon: (b) => ({
-    subject: `Скоро запись: сегодня в ${b.time}`,
+    subject: `Скоро запись: ${soonDay(b).toLowerCase()} в ${b.time}`,
     title: 'Скоро ваша запись ⏰',
-    intro: `Сегодня в <b>${lib.esc(b.time)}</b> — примерно через час. До встречи!`,
+    intro: `${soonDay(b)} в <b>${lib.esc(b.time)}</b> — ${b.leftMin >= 75 ? 'примерно через полтора часа' : 'примерно через час'}. До встречи!`,
     button: { text: 'Не успеваю — перенести', url: lib.manageUrl(b) }
   }),
   // клиент перенёс сам

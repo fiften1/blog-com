@@ -3,7 +3,7 @@
    06:00 UTC = 07:00 по Варшаве зимой / 08:00 летом).
      1. Утренняя сводка вам в Telegram: записи на сегодня и сколько на завтра
      2. Напоминания клиентам о записи на завтра (почта + Telegram)
-   /api/cron?task=soon — каждые ~10 минут: напоминание за час до записи
+   /api/cron?task=soon — каждые ~10 минут: напоминание за 1–1,5 часа до записи
    (вызывается из GitHub Actions, .github/workflows/reminders.yml)
    Защита: если задан CRON_SECRET — нужен заголовок от Vercel; в любом случае
    задача выполняется не больше одного раза в день (замок в базе).
@@ -55,14 +55,15 @@ module.exports = async function handler(req, res) {
   // Повторный вызов безопасен — у каждой записи отмечается, что напоминание уже ушло.
   if (req.query && req.query.task === 'soon') {
     const now = lib.nowSlotTs();
-    const due = await lib.redis('ZRANGEBYSCORE', 'bookings', now + 30 * 60e3, now + 75 * 60e3);
+    const due = await lib.redis('ZRANGEBYSCORE', 'bookings', now + 45 * 60e3, now + 100 * 60e3);
     let sent = 0;
     for (const id of due || []) {
       const b = await lib.getBooking(id);
       if (!b || b.time === lib.WHOLE_DAY || b.soonReminded || !b.email) continue;
       b.soonReminded = true; // сначала отмечаем — даже при сбое письма не пришлём дважды
       await lib.saveBooking(b);
-      if (await mail.notifyClient('soon', b, { onlyOne: true })) sent++;
+      const leftMin = Math.round((lib.slotTs(b.date, b.time) - now) / 60e3);
+      if (await mail.notifyClient('soon', { ...b, leftMin }, { onlyOne: true })) sent++;
     }
     return res.status(200).json({ ok: true, task: 'soon', checked: (due || []).length, sent });
   }
