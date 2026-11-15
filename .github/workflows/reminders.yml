@@ -1,0 +1,13 @@
+# Каждые 10 минут проверяет, кому из клиентов пора напомнить о записи (за час).
+name: Напоминания за час
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Проверить записи на ближайший час
+        run: curl -fsS --max-time 60 "https://blog-com-ten.vercel.app/api/cron?task=soon"
