@@ -152,6 +152,9 @@ async function cancel(id, by, via) {
     };
     cmds.push(['SET', `cl:${id}`, JSON.stringify(entry), 'EX', CL_SEC], ['ZADD', 'cancels', now, id],
       ['ZREMRANGEBYSCORE', 'cancels', '-inf', now - CL_SEC * 1000]);
+    // и у самого клиента — чтобы в кабинете было видно, что запись отменена и кем
+    const em = String(b.email || '').toLowerCase();
+    if (em) cmds.push(['SADD', `ucl:${em}`, id], ['EXPIRE', `ucl:${em}`, CL_SEC]);
   }
   await pipeline(cmds);
   if (by && b.time !== WHOLE_DAY) await track([`cancel:${by}`]).catch(() => {});
@@ -178,6 +181,23 @@ async function forgetCancelled(b) {
   const cmds = [['DEL', `cx:${b.id}`]];
   if (b.email) cmds.push(['SREM', `ucx:${String(b.email).toLowerCase()}`, b.id]);
   await pipeline(cmds);
+  if (b.email) await hideCancelled(b.email, b.id);
+}
+
+/* ---------- Отмены глазами клиента (кабинет) ---------- */
+// Все отмены этого клиента за 60 дней: { id, date, time, service, by, cancelledAt, hidden }
+async function cancelLogFor(email) {
+  const e = String(email).toLowerCase();
+  const [ids, hidden] = await pipeline([['SMEMBERS', `ucl:${e}`], ['SMEMBERS', `uclh:${e}`]]);
+  if (!ids || !ids.length) return [];
+  const raws = await pipeline(ids.map((id) => ['GET', `cl:${id}`]));
+  const hide = new Set(hidden || []);
+  return raws.filter(Boolean).map((r) => JSON.parse(r)).map((c) => ({ ...c, hidden: hide.has(c.id) }));
+}
+// «Скрыть» карточку отмены в разделе «Записи» (в истории она остаётся)
+async function hideCancelled(email, id) {
+  const e = String(email).toLowerCase();
+  await pipeline([['SADD', `uclh:${e}`, id], ['EXPIRE', `uclh:${e}`, CL_SEC]]);
 }
 async function cancelledFor(email) {
   const ids = await redis('SMEMBERS', `ucx:${String(email).toLowerCase()}`);
@@ -530,5 +550,5 @@ module.exports = {
   nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
   favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
   clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage, cancelLog,
-  isWeekend, weekendClosed, openWeekend, closeWeekend, openedWeekends
+  isWeekend, weekendClosed, openWeekend, closeWeekend, openedWeekends, cancelLogFor, hideCancelled
 };

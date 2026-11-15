@@ -55,7 +55,7 @@ async function myComments(email) {
 
 // Полный набор для страницы кабинета: история, Telegram, избранное, лайки, комментарии, отзывы
 async function fullData(email) {
-  const [history, telegram, favs, likes, comments, reviews, reviewed, bot] = await Promise.all([
+  const [history, telegram, favs, likes, comments, reviews, reviewed, bot, cancels] = await Promise.all([
     lib.bookingsOf(email),
     lib.telegramOf(email),
     lib.redis('SMEMBERS', lib.favKey(email)),
@@ -63,10 +63,12 @@ async function fullData(email) {
     myComments(email),
     lib.listReviews({ onlyPublished: false, email }),
     lib.redis('SMEMBERS', `urv:${email}`),
-    lib.botUsername().catch(() => null)
+    lib.botUsername().catch(() => null),
+    lib.cancelLogFor(email)
   ]);
   return {
     history: history.map((b) => ({ ...ops.clientView(b), reviewed: (reviewed || []).includes(b.id) }))
+      .concat(cancels.map((c) => ops.cancelledView(c)))
       .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`)),
     telegram: { linked: !!telegram, name: telegram ? telegram.name : '', bot },
     favorites: favs || [],
@@ -88,6 +90,8 @@ async function deleteEverything(email) {
   (await lib.bookingsOf(email)).forEach((b) => cmds.push(['DEL', `bk:${b.id}`], ['ZREM', 'bookings', b.id]));
   // отменённые вами, отзывы, комментарии
   (await lib.cancelledFor(email)).forEach((c) => cmds.push(['DEL', `cx:${c.id}`]));
+  (await lib.cancelLogFor(email)).forEach((c) => cmds.push(['DEL', `cl:${c.id}`], ['ZREM', 'cancels', c.id]));
+  cmds.push(['DEL', `ucl:${email}`], ['DEL', `uclh:${email}`]);
   (await lib.listReviews({ onlyPublished: false, email, limit: 1000 })).forEach((r) => cmds.push(['DEL', `rv:${r.id}`], ['ZREM', 'reviews', r.id]));
   (await myComments(email)).forEach((c) => cmds.push(['HDEL', `cm:${c.postId}`, c.id]));
   cmds.push(['DEL', `profile:${email}`], ['DEL', lib.favKey(email)], ['DEL', lib.ulikeKey(email)], ['DEL', `ucx:${email}`], ['DEL', `urv:${email}`]);
@@ -95,11 +99,23 @@ async function deleteEverything(email) {
   await lib.unlinkTelegram(email);
 }
 
-// Всё для кабинета: будущие записи (вместе с отменёнными вами — чтобы выбрать новое время) и профиль
+// Отменённые будущие записи для раздела «Записи»: кто отменил и когда.
+// Отменённые вами (cx) можно перенести на другое время с теми же данными.
+async function myCancelled(email) {
+  const [cx, log] = await Promise.all([lib.cancelledFor(email), lib.cancelLogFor(email)]);
+  const byId = new Map(log.map((c) => [c.id, c]));
+  const out = cx.map((b) => ops.cancelledView({ ...b, by: 'owner', cancelledAt: (byId.get(b.id) || {}).cancelledAt || b.cancelledAt, canRebook: true }));
+  const seen = new Set(out.map((b) => b.id));
+  log.filter((c) => !seen.has(c.id) && !c.hidden && !ops.isPast(c))
+    .forEach((c) => out.push(ops.cancelledView({ ...c, canRebook: false })));
+  return out;
+}
+
+// Всё для кабинета: будущие записи (вместе с отменёнными — кто и когда отменил) и профиль
 async function myData(email) {
-  const [bookings, cancelled, profile] = await Promise.all([myBookings(email), lib.cancelledFor(email), lib.getProfile(email)]);
+  const [bookings, cancelled, profile] = await Promise.all([myBookings(email), myCancelled(email), lib.getProfile(email)]);
   return {
-    bookings: bookings.concat(cancelled.map(ops.cancelledView)).sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),
+    bookings: bookings.concat(cancelled).sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),
     profile: profile || null,
     favorites: (await lib.redis('SMEMBERS', lib.favKey(email))) || []
   };
@@ -155,9 +171,16 @@ module.exports = async function handler(req, res) {
       case 'rebook':
       case 'dismiss': {
         if (!user) return res.status(401).json({ ok: false, error: 'Войдите, чтобы управлять записями.' });
-        const cx = await lib.getCancelled(String(body.id || '').slice(0, 20));
+        const cid = String(body.id || '').slice(0, 20);
+        const cx = await lib.getCancelled(cid);
+        if (body.action === 'dismiss') {
+          // скрыть карточку отмены (своей или вашей) — в истории она останется
+          if (cx && String(cx.email || '').toLowerCase() === user.email) await lib.forgetCancelled(cx);
+          else if ((await lib.cancelLogFor(user.email)).some((c) => c.id === cid)) await lib.hideCancelled(user.email, cid);
+          else return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
+          return res.status(200).json({ ok: true, ...(await myData(user.email)) });
+        }
         if (!cx || String(cx.email || '').toLowerCase() !== user.email) return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
-        if (body.action === 'dismiss') { await lib.forgetCancelled(cx); return res.status(200).json({ ok: true, ...(await myData(user.email)) }); }
         const r = await ops.clientRebook(cx, body.date, body.time, VIA);
         if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
         return res.status(200).json({ ok: true, ...(await myData(user.email)) });

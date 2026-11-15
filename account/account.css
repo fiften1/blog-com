@@ -82,7 +82,7 @@ body { min-height: 100vh; }
 .review-form { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .review-form.is-open { display: grid; gap: 10px; }
 .badge { font: .72rem var(--font-mono); padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; }
-.badge--ok { color: #22c55e; } .badge--new { color: var(--cyan); } .badge--wait { color: #f59e0b; }
+.badge--ok { color: #22c55e; } .badge--off { color: var(--pink); } .badge--new { color: var(--cyan); } .badge--wait { color: #f59e0b; }
 
 /* Профиль */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

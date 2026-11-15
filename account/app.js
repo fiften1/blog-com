@@ -154,6 +154,19 @@
   }
   const dateLimits = (el) => { const max = new Date(); max.setDate(max.getDate() + 60); el.min = isoLocal(new Date()); el.max = isoLocal(max); };
 
+  /* ---------- Отменённые записи: кто и когда отменил ---------- */
+  const ownerName = () => (st.site && st.site.name) || 'мастер';
+  const cancelLabel = (b) => (b.cancelledBy === 'client' ? 'отменена вами' : `отменил ${ownerName()}`);
+  const cancelWhen = (b) => {
+    if (!b.cancelledAt) return '';
+    try { return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(b.cancelledAt)); } catch (e) { return ''; }
+  };
+  const cancelText = (b) => {
+    const when = cancelWhen(b) ? ` (${cancelWhen(b)})` : '';
+    if (b.cancelledBy === 'client') return `Вы отменили эту запись${when}. Если планы изменились — запишитесь снова.`;
+    return `Эту запись отменил ${esc(ownerName())}${when} — приношу извинения.` + (b.canRebook ? ' Выберите другое время: ваши данные сохранены.' : '');
+  };
+
   /* ---------- Вкладка «Записи» ---------- */
   function paneBookings() {
     const list = st.bookings;
@@ -163,11 +176,11 @@
         <article class="mybk__item ${b.cancelled ? 'is-cancelled' : ''}" data-id="${esc(b.id)}">
           <div class="mybk__when">${esc(human(b.date))}, ${esc(b.time)}</div>
           <div class="mybk__meta">${b.service ? `<span>${esc(b.service)}</span>` : ''}
-            ${b.cancelled ? '<span class="mybk__status is-off">отменена</span>' : `<span class="mybk__status ${b.status === 'confirmed' ? 'is-ok' : 'is-new'}">${b.status === 'confirmed' ? 'подтверждено' : 'ждёт подтверждения'}</span>`}</div>
-          ${b.cancelled ? '<p class="mybk__sorry">К сожалению, эту запись пришлось отменить — приношу извинения. Выберите другое время: ваши данные сохранены.</p>' : ''}
+            ${b.cancelled ? `<span class="mybk__status is-off">${cancelLabel(b)}</span>` : `<span class="mybk__status ${b.status === 'confirmed' ? 'is-ok' : 'is-new'}">${b.status === 'confirmed' ? 'подтверждено' : 'ждёт подтверждения'}</span>`}</div>
+          ${b.cancelled ? `<p class="mybk__sorry">${cancelText(b)}</p>` : ''}
           <div class="mybk__actions">
             ${b.cancelled
-              ? '<button class="btn btn--primary btn--sm" data-act="move">Выбрать другое время</button><button class="btn btn--ghost btn--sm" data-act="dismiss">Скрыть</button>'
+              ? (b.canRebook ? '<button class="btn btn--primary btn--sm" data-act="move">Выбрать другое время</button>' : `<button class="btn btn--primary btn--sm" data-again="${esc(b.service || '')}">Записаться снова</button>`) + '<button class="btn btn--ghost btn--sm" data-act="dismiss">Скрыть</button>'
               : '<button class="btn btn--ghost btn--sm" data-act="move">Перенести</button><button class="btn btn--ghost btn--sm btn--danger" data-act="cancel">Отменить</button>'}
           </div>
           <div class="mybk__move">
@@ -196,6 +209,8 @@
     };
     $('#pane').onclick = async (e) => {
       if (e.target.closest('[data-go]')) return go(e.target.closest('[data-go]').dataset.go);
+      const again = e.target.closest('[data-again]');
+      if (again) { st.bookService = again.dataset.again; return go('new'); }
       const a = e.target.closest('[data-act]'); if (!a) return;
       const item = a.closest('.mybk__item'); const b = st.bookings.find((x) => x.id === item.dataset.id);
       const act = a.dataset.act;
@@ -283,15 +298,15 @@
   function paneHistory() {
     const reviewOf = (id) => st.reviews.find((r) => r.bookingId === id);
     $('#pane').innerHTML = `
-      <h2>История визитов</h2><p class="sub">Прошедшие записи за последние 2,5 месяца.</p>
+      <h2>История визитов</h2><p class="sub">Прошедшие записи за 2,5 месяца и отменённые — за 2 месяца.</p>
       ${st.history.length ? `<div class="list">${st.history.map((b) => {
         const rv = reviewOf(b.id);
         return `<article class="box" data-id="${esc(b.id)}" style="margin:0">
           <div class="row-item__title">${esc(human(b.date))}, ${esc(b.time)}</div>
-          <div class="row-item__meta">${esc(b.service || 'Запись')}${rv ? ` · ваш отзыв: ${'★'.repeat(rv.rating)} <span class="badge ${rv.status === 'published' ? 'badge--ok' : 'badge--wait'}">${rv.status === 'published' ? 'опубликован' : 'на проверке'}</span>` : ''}</div>
+          <div class="row-item__meta">${esc(b.service || 'Запись')}${b.cancelled ? ` · <span class="badge badge--off">${cancelLabel(b)}</span>${cancelWhen(b) ? ' · ' + esc(cancelWhen(b)) : ''}` : ''}${rv ? ` · ваш отзыв: ${'★'.repeat(rv.rating)} <span class="badge ${rv.status === 'published' ? 'badge--ok' : 'badge--wait'}">${rv.status === 'published' ? 'опубликован' : 'на проверке'}</span>` : ''}</div>
           <div class="mybk__actions" style="margin-top:12px">
             <button class="btn btn--ghost btn--sm" data-again="${esc(b.service || '')}">Записаться снова</button>
-            ${rv ? '' : '<button class="btn btn--ghost btn--sm" data-rv>Оставить отзыв</button>'}
+            ${rv || b.cancelled ? '' : '<button class="btn btn--ghost btn--sm" data-rv>Оставить отзыв</button>'}
           </div>
           <div class="review-form">
             <div class="stars" role="radiogroup" aria-label="Оценка">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-star="${n}" aria-label="${n}">★</button>`).join('')}</div>

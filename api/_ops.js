@@ -72,7 +72,8 @@ async function checkSlot(date, time) {
 
 // Как видна клиенту запись, которую отменили вы
 const cancelledView = (b) => ({
-  id: b.id, date: b.date, time: b.time, service: b.service || '', name: b.name || '', status: 'cancelled', cancelled: true
+  id: b.id, date: b.date, time: b.time, service: b.service || '', name: b.name || '', status: 'cancelled', cancelled: true,
+  cancelledBy: b.by || 'owner', cancelledAt: b.cancelledAt || '', canRebook: !!b.canRebook
 });
 
 // Повторная запись на другое время после вашей отмены — с теми же данными клиента
