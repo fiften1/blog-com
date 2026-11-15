@@ -225,16 +225,24 @@
     $('#pane').innerHTML = `
       <h2>Новая запись</h2><p class="sub">Анкету заполнять не нужно — данные берутся из профиля.</p>
       <div class="box">
-        <div class="step"><span class="form__label">Услуга</span>
+        <div class="step" data-step="service"><span class="form__label">Услуга</span>
           <div class="chips">${services.map((s) => `<label><input type="radio" name="svc" value="${esc(s)}" ${s === pick.service ? 'checked' : ''}><span>${esc(s)}</span></label>`).join('')}</div></div>
-        <div class="step"><label class="form__label" for="ndate">Дата</label><div class="field" style="max-width:240px"><input type="date" id="ndate"></div></div>
-        <div class="step"><span class="form__label">Время</span><div class="times" id="ntimes"><span class="small" style="color:var(--text-faint)">Сначала выберите дату</span></div></div>
+        <div class="step" data-step="date"><label class="form__label" for="ndate">Дата</label><div class="field" style="max-width:240px"><input type="date" id="ndate"></div></div>
+        <div class="step" data-step="time"><span class="form__label">Время</span><div class="times" id="ntimes"><span class="small" style="color:var(--text-faint)">Сначала выберите дату</span></div></div>
         <div class="step"><label class="form__label" for="ncom">Комментарий — необязательно</label><div class="field"><textarea id="ncom" rows="2" maxlength="1000" placeholder="Коротко о задаче"></textarea></div></div>
         <div class="who">Записываем: <b>${esc(prof.name || st.user.name || '')}</b> · <b>${esc(prof.phone || 'телефон не указан')}</b> · <b>${esc(st.user.email)}</b><button data-go="profile">изменить</button></div>
-        <div style="margin-top:16px"><button class="btn btn--primary" id="nsave" disabled>Записаться</button></div>
+        <div style="margin-top:16px"><button class="btn btn--primary" id="nsave">Записаться</button><span class="nsave-hint" id="nhint"></span></div>
         <p class="msg" id="nmsg"></p>
       </div>`;
-    const check = () => { $('#nsave').disabled = !(pick.service && pick.date && pick.time); };
+    // Кнопка всегда активна; подсказка рядом говорит, чего не хватает
+    const missing = () => [!pick.service && ['service', 'услугу'], !pick.date && ['date', 'дату'], !pick.time && ['time', 'время']].filter(Boolean);
+    const check = () => {
+      const m = missing();
+      $('#nhint').textContent = m.length ? `Осталось выбрать: ${m.map((x) => x[1]).join(', ')}` : '';
+      $$('#pane .step.is-missing').forEach((s) => { if (!m.some((x) => x[0] === s.dataset.step)) s.classList.remove('is-missing'); });
+      if (!m.length) $('#nmsg').textContent = '';
+    };
+    check();
     dateLimits($('#ndate'));
     $('#pane').onchange = async (e) => {
       if (e.target.name === 'svc') { pick.service = e.target.value; check(); }
@@ -251,12 +259,19 @@
       const tb = e.target.closest('[data-t]');
       if (tb) { pick.time = tb.dataset.t; $$('#ntimes button').forEach((b) => b.classList.toggle('is-on', b === tb)); check(); return; }
       if (e.target.id === 'nsave') {
-        const btn = e.target; btn.disabled = true; $('#nmsg').textContent = '';
+        const m = missing();
+        if (m.length) {
+          $('#nmsg').textContent = `Выберите ${m.map((x) => x[1]).join(', ')}.`;
+          m.forEach((x) => { const s = $(`#pane [data-step="${x[0]}"]`); s.classList.remove('is-missing'); void s.offsetWidth; s.classList.add('is-missing'); });
+          $(`#pane [data-step="${m[0][0]}"]`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        const btn = e.target; btn.disabled = true; btn.textContent = 'Отправляю…'; $('#nmsg').textContent = '';
         try {
           apply(await api({ action: 'book', ...pick, comment: $('#ncom').value }));
           toast(`Вы записаны: ${human(pick.date)}, ${pick.time}`); go('bookings');
         } catch (err) {
-          $('#nmsg').textContent = err.message; btn.disabled = false;
+          $('#nmsg').textContent = err.message; btn.disabled = false; btn.textContent = 'Записаться';
           if (err.needPhone) setTimeout(() => go('profile'), 1200);
           if (err.taken) $('#ndate').dispatchEvent(new Event('change', { bubbles: true }));
         }

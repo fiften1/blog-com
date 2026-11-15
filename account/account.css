@@ -68,6 +68,10 @@ body { min-height: 100vh; }
 .who button { margin-left: auto; background: none; border: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: .85rem; }
 .step { margin-bottom: 20px; }
 .step > .form__label { margin-bottom: 10px; }
+.step.is-missing > .form__label { color: var(--pink); }
+.step.is-missing { animation: stepShake .4s var(--ease); }
+@keyframes stepShake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.nsave-hint { margin-left: 12px; font-size: .85rem; color: var(--text-faint); }
 
 /* Отзыв */
 .stars { display: inline-flex; gap: 2px; }
