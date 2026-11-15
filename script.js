@@ -1,0 +1,675 @@
+/* =====================================================================
+   SCRIPT.JS — вся логика и анимации блога
+   Контент берётся из data.js (массивы posts, files, videos, links).
+
+   Модули:
+   1. Утилиты и настройки
+   2. Рендер карточек
+   3. Поиск и фильтр по тегам
+   4. Модальное окно поста
+   5. Ленивая загрузка видео
+   6. Меню, подсветка раздела, бургер, тема
+   7. Кнопка «наверх» с прогрессом
+   8. Появление при скролле
+   9. Прелоадер и печатная машинка
+   10. Частицы в hero
+   11. Кастомный курсор
+   12. 3D-наклон карточек, магнитные кнопки, параллакс пятен
+   ===================================================================== */
+(() => {
+  'use strict';
+
+  /* ---------- 1. УТИЛИТЫ ---------- */
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+  // Экранирование текста, чтобы данные не ломали разметку
+  const esc = (str = '') => String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+
+  const dateFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const formatDate = (iso) => {
+    const d = new Date(iso + 'T00:00:00');
+    return isNaN(d) ? esc(iso) : dateFmt.format(d);
+  };
+  // Новые записи — первыми
+  const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '');
+  // Нормализация для поиска: регистр и «ё»
+  const norm = (s) => String(s).toLowerCase().replace(/ё/g, 'е');
+
+  const safe = (arr) => (Array.isArray(arr) ? arr : []);
+  const DATA = {
+    posts: safe(typeof posts !== 'undefined' && posts).slice().sort(byDateDesc),
+    files: safe(typeof files !== 'undefined' && files).slice().sort(byDateDesc),
+    videos: safe(typeof videos !== 'undefined' && videos).slice().sort(byDateDesc),
+    links: safe(typeof links !== 'undefined' && links)
+  };
+
+  // Маленькие SVG-иконки
+  const ICONS = {
+    arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    external: '<svg class="link-card__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>',
+    download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>',
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
+    zip: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M1 3h22v5H1zM10 12h4"/></svg>',
+    image: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
+    doc: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 9h1M9 13h6M9 17h6"/></svg>'
+  };
+  const FILE_LABEL = { pdf: 'PDF', zip: 'ZIP', image: 'IMG', doc: 'DOC' };
+
+  const tagsHTML = (tags = []) =>
+    `<div class="tags">${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>`;
+
+  // Общие data-атрибуты для поиска и фильтра
+  const dataAttrs = (item, extra = '') => {
+    const text = norm([item.title, item.description, item.excerpt, item.category, extra, ...(item.tags || [])].join(' '));
+    const tags = (item.tags || []).map(norm).join('|');
+    return `data-search="${esc(text)}" data-tags="${esc(tags)}"`;
+  };
+
+  /* ---------- 2. РЕНДЕР КАРТОЧЕК ---------- */
+  function renderPosts() {
+    $('#postsGrid').innerHTML = DATA.posts.map((p, i) => `
+      <article class="card post-card tilt reveal" ${dataAttrs(p, p.content?.replace(/<[^>]+>/g, ' '))}>
+        <button class="post-card__btn" type="button" data-post="${i}" aria-label="Читать пост: ${esc(p.title)}"></button>
+        <div class="card__media">
+          <img src="${esc(p.cover)}" alt="${esc(p.alt || p.title)}" loading="lazy" decoding="async" width="900" height="560">
+        </div>
+        <div class="card__body">
+          <div class="meta"><time datetime="${esc(p.date)}">${formatDate(p.date)}</time></div>
+          <h3 class="card__title">${esc(p.title)}</h3>
+          <p class="card__text">${esc(p.excerpt)}</p>
+          ${tagsHTML(p.tags)}
+          <span class="read-more">Читать ${ICONS.arrow}</span>
+        </div>
+      </article>`).join('');
+  }
+
+  function renderFiles() {
+    $('#filesGrid').innerHTML = DATA.files.map((f) => {
+      const type = ICONS[f.type] ? f.type : 'doc';
+      const fileName = (f.file || '').split('/').pop();
+      return `
+      <article class="card file-card tilt reveal" ${dataAttrs(f, fileName)}>
+        <div class="card__body">
+          <div class="file-card__head">
+            <span class="file-icon file-icon--${type}" title="${FILE_LABEL[type]}">${ICONS[type]}</span>
+            <div>
+              <h3 class="card__title">${esc(f.title)}</h3>
+              <div class="meta"><span>${FILE_LABEL[type]}</span><span>${esc(f.size)}</span><time datetime="${esc(f.date)}">${formatDate(f.date)}</time></div>
+            </div>
+          </div>
+          <p class="card__text">${esc(f.description)}</p>
+          ${tagsHTML(f.tags)}
+          <div class="file-card__foot">
+            <a class="btn btn--primary btn--sm magnetic" href="${esc(f.file)}" download="${esc(fileName)}">${ICONS.download}<span>Скачать</span></a>
+          </div>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  function renderVideos() {
+    $('#videosGrid').innerHTML = DATA.videos.map((v) => `
+      <article class="card video-card tilt reveal" ${dataAttrs(v)}>
+        <div class="video-card__player">
+          <button class="video-card__poster" type="button" data-video="${esc(v.youtubeId)}" data-title="${esc(v.title)}" aria-label="Смотреть видео: ${esc(v.title)}">
+            <img src="https://i.ytimg.com/vi/${esc(v.youtubeId)}/hqdefault.jpg" alt="Превью видео «${esc(v.title)}»" loading="lazy" decoding="async" width="480" height="360">
+            <span class="play">${ICONS.play}</span>
+          </button>
+        </div>
+        <div class="card__body">
+          <div class="meta"><time datetime="${esc(v.date)}">${formatDate(v.date)}</time></div>
+          <h3 class="card__title">${esc(v.title)}</h3>
+          <p class="card__text">${esc(v.description)}</p>
+          ${tagsHTML(v.tags)}
+        </div>
+      </article>`).join('');
+  }
+
+  function renderLinks() {
+    $('#linksGrid').innerHTML = DATA.links.map((l) => {
+      let host = l.url;
+      try { host = new URL(l.url).hostname.replace(/^www\./, ''); } catch (e) { /* оставляем как есть */ }
+      return `
+      <article class="card link-card tilt reveal" ${dataAttrs(l, host)}>
+        ${ICONS.external}
+        <div class="card__body">
+          <div class="link-card__head">
+            <img class="favicon" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" loading="lazy" width="44" height="44">
+            <div>
+              <span class="link-card__cat">${esc(l.category)}</span>
+              <h3 class="card__title"><a class="link-card__stretch" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a></h3>
+            </div>
+          </div>
+          <p class="card__text">${esc(l.description)}</p>
+          ${tagsHTML(l.tags)}
+          <span class="link-card__url">${esc(host)}</span>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  // Если картинка не загрузилась — показываем неоновый градиент вместо «битой» иконки
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (img.tagName !== 'IMG') return;
+    const box = img.closest('.card__media, .video-card__poster');
+    if (box) box.classList.add('img-fallback');
+    else if (img.classList.contains('favicon')) img.style.visibility = 'hidden';
+  }, true);
+
+  /* ---------- 3. ПОИСК И ФИЛЬТР ---------- */
+  const state = { query: '', tag: '' };
+  const sections = [
+    { grid: '#postsGrid', name: 'постов' },
+    { grid: '#filesGrid', name: 'файлов' },
+    { grid: '#videosGrid', name: 'видео' },
+    { grid: '#linksGrid', name: 'ссылок' }
+  ];
+
+  function renderChips() {
+    // Собираем все теги со всего сайта и считаем частоту
+    const counts = new Map();
+    [...DATA.posts, ...DATA.files, ...DATA.videos, ...DATA.links].forEach((item) =>
+      (item.tags || []).forEach((t) => counts.set(norm(t), (counts.get(norm(t)) || 0) + 1)));
+    const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'));
+
+    $('#tagChips').innerHTML =
+      `<button class="chip is-active" type="button" data-tag="" aria-pressed="true">Все</button>` +
+      tags.map(([t, n]) => `<button class="chip" type="button" data-tag="${esc(t)}" aria-pressed="false">${esc(t)} <small>${n}</small></button>`).join('');
+
+    $('#tagChips').addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      // повторный клик по активному тегу снимает фильтр
+      state.tag = state.tag === chip.dataset.tag ? '' : chip.dataset.tag;
+      $$('.chip').forEach((c) => {
+        const on = c.dataset.tag === state.tag;
+        c.classList.toggle('is-active', on);
+        c.setAttribute('aria-pressed', on);
+      });
+      applyFilters();
+    });
+  }
+
+  function applyFilters() {
+    const words = norm(state.query).trim().split(/\s+/).filter(Boolean);
+    let total = 0;
+    const summary = [];
+
+    sections.forEach(({ grid, name }) => {
+      const el = $(grid);
+      let visible = 0;
+      $$('.card', el).forEach((card) => {
+        const okText = words.every((w) => card.dataset.search.includes(w));
+        const okTag = !state.tag || card.dataset.tags.split('|').includes(state.tag);
+        const show = okText && okTag;
+        card.classList.toggle('is-filtered', !show);
+        if (show) visible++;
+      });
+      el.nextElementSibling.hidden = visible > 0;
+      total += visible;
+      summary.push(`${name}: ${visible}`);
+    });
+
+    const active = words.length || state.tag;
+    $('#searchStatus').textContent = active
+      ? (total ? `Найдено ${total} — ${summary.join(', ')}` : 'Ничего не найдено. Попробуйте другой запрос или тег.')
+      : '';
+  }
+
+  function initSearch() {
+    const input = $('#searchInput');
+    input.addEventListener('input', () => { state.query = input.value; applyFilters(); });
+    // «/» — быстрый фокус на поиск, Esc — очистка
+    document.addEventListener('keydown', (e) => {
+      const typing = /input|textarea/i.test(document.activeElement.tagName);
+      if (e.key === '/' && !typing && $('#postModal').hidden) {
+        e.preventDefault();
+        input.focus({ preventScroll: true });
+        $('#search').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      }
+      if (e.key === 'Escape' && document.activeElement === input) {
+        input.value = ''; state.query = ''; applyFilters(); input.blur();
+      }
+    });
+  }
+
+  /* ---------- 4. МОДАЛЬНОЕ ОКНО ПОСТА ---------- */
+  const modal = $('#postModal');
+  const dialog = $('.modal__dialog', modal);
+  let lastFocus = null;
+  let closeTimer = null;
+
+  function openPost(index, originEl) {
+    const p = DATA.posts[index];
+    if (!p) return;
+    clearTimeout(closeTimer);
+    lastFocus = document.activeElement;
+
+    const cover = $('#modalCover');
+    cover.src = p.cover; cover.alt = p.alt || p.title;
+    $('#modalTitle').textContent = p.title;
+    $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"');
+    $('#modalContent').innerHTML = p.content || `<p>${esc(p.excerpt)}</p>`;
+
+    // Блокируем прокрутку страницы, компенсируя ширину скроллбара
+    const sbw = innerWidth - document.documentElement.clientWidth;
+    document.body.style.paddingRight = sbw ? sbw + 'px' : '';
+    document.body.classList.add('is-locked');
+
+    modal.hidden = false;
+    dialog.scrollTop = 0;
+
+    // Окно «вырастает» из карточки, по которой кликнули
+    if (originEl) {
+      const r = originEl.getBoundingClientRect();
+      const d = dialog.getBoundingClientRect();
+      dialog.style.setProperty('--ox', `${r.left + r.width / 2 - d.left}px`);
+      dialog.style.setProperty('--oy', `${r.top + r.height / 2 - d.top}px`);
+    }
+    void dialog.offsetWidth; // перерисовка перед анимацией
+    modal.classList.add('is-open');
+    $('.modal__close', modal).focus({ preventScroll: true });
+  }
+
+  function closePost() {
+    if (modal.hidden) return;
+    modal.classList.remove('is-open');
+    closeTimer = setTimeout(() => {
+      modal.hidden = true;
+      document.body.classList.remove('is-locked');
+      document.body.style.paddingRight = '';
+      lastFocus?.focus({ preventScroll: true });
+    }, reducedMotion ? 0 : 450);
+  }
+
+  function initModal() {
+    $('#postsGrid').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-post]');
+      if (btn) openPost(+btn.dataset.post, btn.closest('.card'));
+    });
+    modal.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closePost(); });
+    document.addEventListener('keydown', (e) => {
+      if (modal.hidden) return;
+      if (e.key === 'Escape') closePost();
+      // Удерживаем фокус внутри окна
+      if (e.key === 'Tab') {
+        const items = $$('a[href], button, [tabindex]:not([tabindex="-1"])', dialog);
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+  }
+
+  /* ---------- 5. ЛЕНИВАЯ ЗАГРУЗКА ВИДЕО ---------- */
+  function initVideos() {
+    $('#videosGrid').addEventListener('click', (e) => {
+      const poster = e.target.closest('[data-video]');
+      if (!poster) return;
+      // iframe создаётся только по клику — страница остаётся лёгкой
+      const iframe = document.createElement('iframe');
+      iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(poster.dataset.video)}?autoplay=1&rel=0`;
+      iframe.title = poster.dataset.title;
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      iframe.allowFullscreen = true;
+      poster.replaceWith(iframe);
+      iframe.focus();
+    });
+  }
+
+  /* ---------- 6. МЕНЮ, ПОДСВЕТКА РАЗДЕЛА, БУРГЕР, ТЕМА ---------- */
+  function initNav() {
+    const header = $('#header');
+    const nav = $('#nav');
+    const burger = $('#burger');
+    const links = $$('.nav__link');
+
+    const setMenu = (open) => {
+      nav.classList.toggle('is-open', open);
+      burger.setAttribute('aria-expanded', open);
+      burger.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
+    };
+    burger.addEventListener('click', () => setMenu(!nav.classList.contains('is-open')));
+    links.forEach((a) => a.addEventListener('click', () => setMenu(false)));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
+    document.addEventListener('click', (e) => {
+      if (nav.classList.contains('is-open') && !e.target.closest('#nav, #burger')) setMenu(false);
+    });
+
+    // Фон шапки после начала прокрутки
+    const onScroll = () => header.classList.toggle('is-scrolled', scrollY > 20);
+    addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // Подсветка текущего раздела
+    const map = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
+    const spy = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        links.forEach((a) => { a.classList.remove('is-active'); a.removeAttribute('aria-current'); });
+        const link = map.get(entry.target.id);
+        if (link) { link.classList.add('is-active'); link.setAttribute('aria-current', 'true'); }
+      });
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    $$('main > section[id]').forEach((s) => spy.observe(s));
+  }
+
+  function initTheme() {
+    const root = document.documentElement;
+    const meta = $('meta[name="theme-color"]');
+    const apply = (theme) => {
+      root.dataset.theme = theme;
+      meta.content = theme === 'light' ? '#f4f2fb' : '#0a0a12';
+      document.dispatchEvent(new CustomEvent('themechange'));
+    };
+    apply(root.dataset.theme || 'dark');
+    $('#themeToggle').addEventListener('click', () => {
+      const next = root.dataset.theme === 'light' ? 'dark' : 'light';
+      apply(next);
+      try { localStorage.setItem('theme', next); } catch (e) { /* приватный режим */ }
+    });
+  }
+
+  /* ---------- 7. КНОПКА «НАВЕРХ» ---------- */
+  function initToTop() {
+    const btn = $('#toTop');
+    const bar = $('#toTopBar');
+    const length = 2 * Math.PI * 21;
+    let ticking = false;
+    const update = () => {
+      const max = document.documentElement.scrollHeight - innerHeight;
+      const progress = max > 0 ? Math.min(scrollY / max, 1) : 0;
+      bar.style.strokeDashoffset = length * (1 - progress);
+      btn.classList.toggle('is-visible', scrollY > innerHeight * 0.6);
+      ticking = false;
+    };
+    addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+    addEventListener('resize', update);
+    update();
+    btn.addEventListener('click', () => scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' }));
+  }
+
+  /* ---------- 8. ПОЯВЛЕНИЕ ПРИ СКРОЛЛЕ ---------- */
+  function initReveal() {
+    const items = $$('.reveal');
+    if (reducedMotion || !('IntersectionObserver' in window)) {
+      items.forEach((el) => el.classList.add('is-visible'));
+      return;
+    }
+    const io = new IntersectionObserver((entries) => {
+      // Элементы, появившиеся одновременно, получают каскадную задержку
+      entries.filter((e) => e.isIntersecting).forEach((entry, i) => {
+        const el = entry.target;
+        el.style.setProperty('--d', `${Math.min(i, 6) * 90}ms`);
+        el.classList.add('is-visible');
+        io.unobserve(el);
+        // убираем задержку после появления, чтобы hover не «тормозил»
+        setTimeout(() => el.style.removeProperty('--d'), 1200 + i * 90);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    items.forEach((el) => io.observe(el));
+  }
+
+  /* ---------- 9. ПРЕЛОАДЕР И ПЕЧАТНАЯ МАШИНКА ---------- */
+  function typewriter() {
+    const el = $('#typewriter');
+    const text = el.dataset.text || el.textContent;
+    el.setAttribute('aria-label', text);
+    if (reducedMotion) { el.textContent = text; return; }
+    el.textContent = '';
+    el.classList.add('is-typing');
+    let i = 0;
+    const tick = () => {
+      el.textContent = text.slice(0, ++i);
+      if (i < text.length) setTimeout(tick, 70 + Math.random() * 90);
+      else { el.classList.remove('is-typing'); el.classList.add('is-typed'); }
+    };
+    setTimeout(tick, 350);
+  }
+
+  function initPreloader() {
+    const pre = $('#preloader');
+    const start = performance.now();
+    let done = false;
+    const hide = () => {
+      if (done) return;
+      done = true;
+      const wait = Math.max(0, 700 - (performance.now() - start)); // логотип успеет «вспыхнуть»
+      setTimeout(() => {
+        pre.classList.add('is-hidden');
+        typewriter();
+        setTimeout(() => pre.remove(), 700);
+      }, reducedMotion ? 0 : wait);
+    };
+    if (document.readyState === 'complete') hide();
+    else addEventListener('load', hide);
+    setTimeout(hide, 3000); // страховка, если что-то грузится слишком долго
+  }
+
+  /* ---------- 10. ЧАСТИЦЫ В HERO ---------- */
+  function initParticles() {
+    const canvas = $('#particles');
+    const ctx = canvas.getContext('2d');
+    const hero = $('#hero');
+    let w = 0, h = 0, dpr = 1, particles = [], running = false, raf = 0;
+    const mouse = { x: -9999, y: -9999 };
+    let color = '168, 85, 247', lineColor = '34, 211, 238';
+
+    const readColors = () => {
+      const cs = getComputedStyle(document.documentElement);
+      color = cs.getPropertyValue('--particle').trim() || color;
+      lineColor = cs.getPropertyValue('--particle-line').trim() || lineColor;
+    };
+
+    const resize = () => {
+      const rect = hero.getBoundingClientRect();
+      w = rect.width; h = rect.height;
+      dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const count = Math.min(70, Math.floor((w * h) / 20000));
+      particles = Array.from({ length: count }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
+        r: Math.random() * 1.1 + 0.5
+      }));
+      if (!running) draw(); // статичный кадр
+    };
+
+    const LINK = 140, MOUSE_R = 180;
+
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (running) {
+          // Отталкивание от курсора
+          const dx = p.x - mouse.x, dy = p.y - mouse.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < MOUSE_R && dist > 0) {
+            const f = (1 - dist / MOUSE_R) * 0.35;
+            p.x += (dx / dist) * f; p.y += (dy / dist) * f;
+          }
+          p.x += p.vx; p.y += p.vy;
+          if (p.x < 0 || p.x > w) p.vx *= -1;
+          if (p.y < 0 || p.y > h) p.vy *= -1;
+        }
+        // Линии между близкими частицами
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j];
+          const d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < LINK) {
+            ctx.strokeStyle = `rgba(${color}, ${(1 - d / LINK) * 0.12})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+          }
+        }
+        // Линии к курсору
+        const md = Math.hypot(p.x - mouse.x, p.y - mouse.y);
+        if (md < MOUSE_R) {
+          ctx.strokeStyle = `rgba(${lineColor}, ${(1 - md / MOUSE_R) * 0.35})`;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
+        }
+        ctx.fillStyle = `rgba(${color}, 0.45)`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    const loop = () => { draw(); if (running) raf = requestAnimationFrame(loop); };
+    const start = () => { if (!running && !reducedMotion) { running = true; raf = requestAnimationFrame(loop); } };
+    const stop = () => { running = false; cancelAnimationFrame(raf); };
+
+    hero.addEventListener('pointermove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
+    });
+    hero.addEventListener('pointerleave', () => { mouse.x = mouse.y = -9999; });
+
+    // Анимация идёт, только когда hero виден и вкладка активна
+    let heroVisible = true;
+    new IntersectionObserver(([e]) => {
+      heroVisible = e.isIntersecting;
+      heroVisible && !document.hidden ? start() : stop();
+    }).observe(hero);
+    document.addEventListener('visibilitychange', () => (document.hidden || !heroVisible ? stop() : start()));
+
+    let resizeTimer;
+    addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 150); });
+    document.addEventListener('themechange', () => { readColors(); if (!running) draw(); });
+
+    readColors();
+    resize();
+    start();
+  }
+
+  /* ---------- 11. КАСТОМНЫЙ КУРСОР ---------- */
+  function initCursor() {
+    if (!finePointer || reducedMotion) return; // на сенсорных экранах отключён
+    const root = $('#cursor');
+    document.documentElement.classList.add('has-cursor');
+
+    const dot = document.createElement('div');
+    dot.className = 'cursor__dot';
+    const ring = document.createElement('div');   // кольцо-«хвост», плавно догоняет точку
+    ring.className = 'cursor__ring';
+    root.append(ring, dot);
+    let rx = -100, ry = -100;
+
+    let mx = -100, my = -100;
+    addEventListener('pointermove', (e) => {
+      mx = e.clientX; my = e.clientY;
+      root.style.opacity = 1;
+    }, { passive: true });
+    document.addEventListener('pointerleave', () => { root.style.opacity = 0; });
+
+    // Увеличение над кликабельными элементами
+    const CLICKABLE = 'a, button, input, label, [data-hover], .post-card';
+    document.addEventListener('pointerover', (e) => root.classList.toggle('is-hover', !!e.target.closest(CLICKABLE)));
+
+    const loop = () => {
+      dot.style.transform = `translate3d(${mx}px, ${my}px, 0)`;
+      rx += (mx - rx) * 0.16; ry += (my - ry) * 0.16;
+      ring.style.transform = `translate3d(${rx}px, ${ry}px, 0)`;
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  /* ---------- 12. НАКЛОН, МАГНИТЫ, ПАРАЛЛАКС ---------- */
+  function initTilt() {
+    if (!finePointer || reducedMotion) return;
+    const MAX = 3; // максимальный угол наклона в градусах
+    $$('.tilt').forEach((el) => {
+      let raf = 0;
+      el.addEventListener('pointermove', (e) => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          const r = el.getBoundingClientRect();
+          const x = (e.clientX - r.left) / r.width;
+          const y = (e.clientY - r.top) / r.height;
+          el.classList.add('is-tilting');
+          el.style.setProperty('--ry', `${(x - 0.5) * MAX * 2}deg`);
+          el.style.setProperty('--rx', `${(0.5 - y) * MAX * 2}deg`);
+          el.style.setProperty('--mx', `${x * 100}%`);
+          el.style.setProperty('--my', `${y * 100}%`);
+        });
+      });
+      el.addEventListener('pointerleave', () => {
+        cancelAnimationFrame(raf);
+        el.classList.remove('is-tilting');
+        el.style.setProperty('--rx', '0deg');
+        el.style.setProperty('--ry', '0deg');
+      });
+    });
+  }
+
+  function initMagnetic() {
+    if (!finePointer || reducedMotion) return;
+    $$('.magnetic').forEach((el) => {
+      el.addEventListener('pointermove', (e) => {
+        const r = el.getBoundingClientRect();
+        const dx = e.clientX - (r.left + r.width / 2);
+        const dy = e.clientY - (r.top + r.height / 2);
+        el.style.transform = `translate(${dx * 0.15}px, ${dy * 0.25}px)`;
+      });
+      el.addEventListener('pointerleave', () => { el.style.transform = ''; });
+    });
+  }
+
+  function initParallax() {
+    if (reducedMotion) return;
+    const layers = $$('.blobs__layer').map((el) => ({ el, depth: parseFloat(el.dataset.depth) || 0.2 }));
+    let tx = 0, ty = 0, cx = 0, cy = 0, ticking = false;
+    const render = () => {
+      // плавно догоняем положение мыши
+      cx += (tx - cx) * 0.08; cy += (ty - cy) * 0.08;
+      layers.forEach(({ el, depth }) => {
+        el.style.transform = `translate3d(${cx * depth * 60}px, ${-scrollY * depth * 0.4 + cy * depth * 60}px, 0)`;
+      });
+      if (Math.abs(tx - cx) > 0.001 || Math.abs(ty - cy) > 0.001) requestAnimationFrame(render);
+      else ticking = false;
+    };
+    const kick = () => { if (!ticking) { ticking = true; requestAnimationFrame(render); } };
+    addEventListener('scroll', kick, { passive: true });
+    if (finePointer) {
+      addEventListener('pointermove', (e) => {
+        tx = e.clientX / innerWidth - 0.5; ty = e.clientY / innerHeight - 0.5;
+        kick();
+      }, { passive: true });
+    }
+    kick();
+  }
+
+  /* ---------- ЗАПУСК ---------- */
+  renderPosts();
+  renderFiles();
+  renderVideos();
+  renderLinks();
+  renderChips();
+  applyFilters();
+
+  initTheme();
+  initNav();
+  initSearch();
+  initModal();
+  initVideos();
+  initToTop();
+  initReveal();
+  initParticles();
+  initCursor();
+  initTilt();
+  initMagnetic();
+  initParallax();
+  initPreloader();
+
+  $('#year').textContent = new Date().getFullYear();
+})();
