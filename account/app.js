@@ -393,10 +393,20 @@
         <button class="btn btn--ghost btn--sm btn--danger" id="pdel">Удалить всё</button>
       </div>`;
     $('#psave').onclick = async (e) => {
-      e.target.disabled = true; const m = $('#pmsg');
-      try { const out = await api({ action: 'profile', name: $('#pname').value, phone: $('#pphone').value }); st.profile = out.profile; m.textContent = 'Сохранено'; m.className = 'msg is-ok'; render(); }
-      catch (err) { m.textContent = err.message; m.className = 'msg'; }
-      e.target.disabled = false;
+      const btn = e.target; btn.disabled = true; btn.textContent = 'Сохраняю…'; $('#pmsg').textContent = '';
+      try {
+        const out = await api({ action: 'profile', name: $('#pname').value, phone: $('#pphone').value });
+        st.profile = out.profile;
+        render(); // перерисовка обновит имя в шапке — сообщение показываем уже в новой разметке
+        const b = $('#psave'), m = $('#pmsg');
+        m.textContent = '✓ Данные сохранены — они подставятся в следующую запись.'; m.className = 'msg is-ok';
+        b.textContent = '✓ Сохранено'; b.classList.add('is-saved');
+        toast('Данные сохранены');
+        setTimeout(() => { if (b.isConnected) { b.textContent = 'Сохранить'; b.classList.remove('is-saved'); } }, 2500);
+      } catch (err) {
+        const m = $('#pmsg'); m.textContent = err.message; m.className = 'msg';
+        btn.disabled = false; btn.textContent = 'Сохранить';
+      }
     };
     if ($('#tgon')) $('#tgon').onclick = async (e) => {
       e.target.disabled = true;

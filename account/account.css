@@ -71,6 +71,7 @@ body { min-height: 100vh; }
 .step.is-missing > .form__label { color: var(--pink); }
 .step.is-missing { animation: stepShake .4s var(--ease); }
 @keyframes stepShake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.btn.is-saved { background: #22c55e; color: #fff; border-color: #22c55e; }
 .nsave-hint { margin-left: 12px; font-size: .85rem; color: var(--text-faint); }
 
 /* Отзыв */
