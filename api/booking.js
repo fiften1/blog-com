@@ -1,38 +1,25 @@
 /* =====================================================================
-   /api/booking — принимает заявку с сайта и отправляет её в Telegram.
-   Работает как серверная функция Vercel (папка api/ подхватывается сама).
+   /api/booking — принимает заявку с сайта, занимает время в базе
+   и отправляет заявку в Telegram с кнопками «Подтвердить» и «Отменить».
 
-   Нужны переменные окружения в Vercel → Settings → Environment Variables:
-     TELEGRAM_BOT_TOKEN — токен бота от @BotFather
-     TELEGRAM_CHAT_ID   — ваш ID в Telegram (куда слать заявки)
-   Токены хранятся только в Vercel, в код и в репозиторий они не попадают.
+   Переменные окружения в Vercel:
+     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID — бот и ваш ID
+     KV_REST_API_URL, KV_REST_API_TOKEN   — база Upstash Redis (Vercel добавляет сам)
+   Без базы форма тоже работает, но не следит за занятым временем.
    ===================================================================== */
+const lib = require('./_lib');
 
-// Простейшая защита от спама: не больше 5 заявок за 10 минут с одного IP
-// (в памяти одного экземпляра функции — от массовых атак не спасает, от случайного флуда — да)
+// Простейшая защита от флуда: не больше 5 заявок за 10 минут с одного IP
 const hits = new Map();
-const LIMIT = 5;
-const WINDOW_MS = 10 * 60 * 1000;
-
 function tooMany(ip) {
   const now = Date.now();
-  const list = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
+  const list = (hits.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
   list.push(now);
   hits.set(ip, list);
-  return list.length > LIMIT;
+  return list.length > 5;
 }
 
-// Экранирование для parse_mode=HTML в Telegram
-const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const clean = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
-
-const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-function humanDate(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${d} ${MONTHS[m - 1]} ${y} (${WEEKDAYS[wd]})`;
-}
 
 function validate(body) {
   const data = {
@@ -68,7 +55,6 @@ module.exports = async function handler(req, res) {
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
 
   // Ловушка для ботов: скрытое поле заполнено или форма «заполнена» быстрее 3 секунд.
-  // Отвечаем «успехом», чтобы бот не понял, что его отсеяли, но ничего не отправляем.
   if (body.website || (Number(body.elapsed) > 0 && Number(body.elapsed) < 3000)) {
     return res.status(200).json({ ok: true });
   }
@@ -81,44 +67,42 @@ module.exports = async function handler(req, res) {
   const { data, error } = validate(body);
   if (error) return res.status(400).json({ ok: false, error });
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
+  if (!lib.BOT() || !lib.OWNER()) {
     console.error('booking: TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID не заданы');
     return res.status(500).json({ ok: false, error: 'Запись временно не работает.' });
   }
 
-  const text = [
-    '🆕 <b>Новая заявка с сайта</b>',
-    '',
-    `<b>Услуга:</b> ${esc(data.service)}`,
-    `<b>Когда:</b> ${esc(humanDate(data.date))}, ${esc(data.time)}`,
-    '',
-    `<b>Имя:</b> ${esc(data.name)}`,
-    `<b>Телефон:</b> ${esc(data.phone)}`,
-    `<b>Почта:</b> ${esc(data.email)}`,
-    data.comment ? `\n<b>Комментарий:</b>\n${esc(data.comment)}` : ''
-  ].join('\n').trim();
-
-  try {
-    const tg = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true })
-    });
-    const out = await tg.json().catch(() => ({}));
-    if (!tg.ok || !out.ok) {
-      console.error('booking: Telegram ответил ошибкой', tg.status, out.description);
-      return res.status(502).json({ ok: false, error: 'Не получилось отправить заявку.' });
+  // 1. Занимаем время в базе (если база подключена)
+  let booking = { ...data, status: 'new' };
+  if (lib.hasDb()) {
+    try {
+      const reserved = await lib.reserve(data);
+      if (!reserved) {
+        return res.status(409).json({ ok: false, taken: true, error: 'Это время уже заняли. Выберите другое.' });
+      }
+      booking = reserved;
+    } catch (e) {
+      console.error('booking: ошибка базы', e.message);
+      return res.status(500).json({ ok: false, error: 'Не получилось отправить заявку.' });
     }
+  }
+
+  // 2. Отправляем в Telegram; если не вышло — освобождаем время обратно
+  try {
+    await lib.tg('sendMessage', {
+      chat_id: lib.OWNER(),
+      text: lib.bookingText(booking),
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup: lib.bookingKeyboard(booking)
+    });
   } catch (e) {
-    console.error('booking: нет связи с Telegram', e.message);
+    console.error('booking:', e.message);
+    if (booking.id) await lib.cancel(booking.id).catch(() => {});
     return res.status(502).json({ ok: false, error: 'Не получилось отправить заявку.' });
   }
 
   return res.status(200).json({ ok: true });
 };
 
-// Для локальных тестов
 module.exports.validate = validate;
-module.exports.humanDate = humanDate;

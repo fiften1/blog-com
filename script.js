@@ -797,22 +797,43 @@
     dateInput.min = isoLocal(today);
     dateInput.max = isoLocal(max);
 
-    // Время: на сегодня прошедшие слоты недоступны
+    // Время: прошедшие (на сегодня) и уже занятые слоты недоступны
+    let taken = [];
     const fillSlots = () => {
       const isToday = dateInput.value === isoLocal(new Date());
       const now = new Date();
       const nowMin = now.getHours() * 60 + now.getMinutes() + 30; // минимум за 30 минут
       const prev = timeSelect.value;
+      let free = 0;
       timeSelect.innerHTML = '<option value="">Выберите время</option>' + slots.map((t) => {
         const [h, m] = t.split(':').map(Number);
-        const off = isToday && h * 60 + (m || 0) < nowMin;
-        return `<option value="${esc(t)}" ${off ? 'disabled' : ''}>${esc(t)}${off ? ' — прошло' : ''}</option>`;
+        const past = isToday && h * 60 + (m || 0) < nowMin;
+        const busy = taken.includes(t);
+        if (!past && !busy) free++;
+        const note = past ? ' — прошло' : busy ? ' — занято' : '';
+        return `<option value="${esc(t)}" ${past || busy ? 'disabled' : ''}>${esc(t)}${note}</option>`;
       }).join('');
+      if (dateInput.value && !free) timeSelect.options[0].textContent = 'На эту дату всё занято';
       if (prev && !timeSelect.querySelector(`option[value="${CSS.escape(prev)}"]:not([disabled])`)) timeSelect.value = '';
       else timeSelect.value = prev;
     };
+    // Узнаём у сервера, какое время на выбранную дату уже занято
+    let slotsReq = 0;
+    const loadTaken = async () => {
+      taken = [];
+      fillSlots();
+      if (!dateInput.value) return;
+      const req = ++slotsReq;
+      timeSelect.disabled = true;
+      try {
+        const r = await fetch(`/api/slots?date=${encodeURIComponent(dateInput.value)}`, { cache: 'no-store' });
+        const out = r.ok ? await r.json() : {};
+        if (req === slotsReq) taken = safe(out.taken);
+      } catch (e) { /* без сервера (например, на GitHub Pages) просто не знаем о занятых */ }
+      if (req === slotsReq) { timeSelect.disabled = false; fillSlots(); }
+    };
     fillSlots();
-    dateInput.addEventListener('change', fillSlots);
+    dateInput.addEventListener('change', loadTaken);
 
     // Проверка полей с понятными сообщениями
     const setError = (el, msg) => {
@@ -861,6 +882,16 @@
           body: JSON.stringify({ ...data, elapsed: Date.now() - startedAt })
         });
         const out = await res.json().catch(() => ({}));
+        if (out.taken) {
+          // Кто-то успел занять это время — обновляем список и просим выбрать другое
+          await loadTaken();
+          setError(timeSelect, 'Это время уже заняли');
+          status.textContent = 'Это время только что заняли. Выберите другое.';
+          status.classList.add('is-error');
+          submit.disabled = false;
+          timeSelect.focus();
+          return;
+        }
         if (!res.ok || !out.ok) throw new Error(out.error || 'Не получилось отправить заявку.');
         const when = `${formatDate(data.date)}, ${data.time}`;
         form.innerHTML = `
