@@ -1,6 +1,7 @@
 /* =====================================================================
    SCRIPT.JS — вся логика и анимации блога
-   Контент берётся из data.js (массивы posts, files, videos, links).
+   Контент берётся из папки content/ (JSON-файлы, которые редактирует админка /admin):
+   site.json, posts.json, files.json, videos.json, links.json.
 
    Модули:
    1. Утилиты и настройки
@@ -42,12 +43,131 @@
   const norm = (s) => String(s).toLowerCase().replace(/ё/g, 'е');
 
   const safe = (arr) => (Array.isArray(arr) ? arr : []);
-  const DATA = {
-    posts: safe(typeof posts !== 'undefined' && posts).slice().sort(byDateDesc),
-    files: safe(typeof files !== 'undefined' && files).slice().sort(byDateDesc),
-    videos: safe(typeof videos !== 'undefined' && videos).slice().sort(byDateDesc),
-    links: safe(typeof links !== 'undefined' && links)
+  const DATA = { site: {}, posts: [], files: [], videos: [], links: [] };
+
+  // Загрузка контента из content/*.json (no-cache — чтобы правки из админки появлялись сразу)
+  async function loadContent() {
+    const get = (name) => fetch(`content/${name}.json`, { cache: 'no-cache' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}));
+    const [site, p, f, v, l] = await Promise.all(['site', 'posts', 'files', 'videos', 'links'].map(get));
+    DATA.site = site || {};
+    DATA.posts = safe(p.posts).slice().sort(byDateDesc);
+    DATA.files = safe(f.files).slice().sort(byDateDesc);
+    DATA.videos = safe(v.videos).slice().sort(byDateDesc);
+    DATA.links = safe(l.links);
+    return !!(p.posts || f.files);
+  }
+
+  // Разрешаем только безопасные адреса в ссылках и картинках из Markdown
+  const safeUrl = (u) => (/^(https?:|mailto:|\/|\.|#)/i.test(u) || /^[\w.-]+(\/[\w.\-%]*)*$/.test(u) ? u : '#');
+
+  // Мини-Markdown → HTML (заголовки, списки, цитаты, жирный, курсив, ссылки, картинки, код)
+  const inline = (t) => esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, src) => `<img src="${safeUrl(src)}" alt="${alt}" loading="lazy">`)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, href) => `<a href="${safeUrl(href)}" target="_blank" rel="noopener noreferrer">${txt}</a>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
+
+  function markdown(src = '') {
+    const out = [];
+    let list = null, para = [], quote = [];
+    const flush = () => {
+      if (para.length) { out.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; }
+      if (quote.length) { out.push(`<blockquote>${quote.map(inline).join('<br>')}</blockquote>`); quote = []; }
+      if (list) { out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join('')}</${list.tag}>`); list = null; }
+    };
+    String(src).replace(/\r/g, '').split('\n').forEach((raw) => {
+      const line = raw.trim();
+      let m;
+      if (!line) { flush(); return; }
+      if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {
+        flush();
+        const n = m[1].length >= 4 ? 4 : 3; // #, ## и ### → подзаголовок h3, #### → h4
+        out.push(`<h${n}>${inline(m[2])}</h${n}>`);
+        return;
+      }
+      if ((m = line.match(/^>\s?(.*)$/))) {
+        if (para.length || list) flush();
+        quote.push(m[1]);
+        return;
+      }
+      if ((m = line.match(/^([-*+]|\d+[.)])\s+(.*)$/))) {
+        const tag = /\d/.test(m[1]) ? 'ol' : 'ul';
+        if (para.length || quote.length || (list && list.tag !== tag)) flush();
+        list = list || { tag, items: [] };
+        list.items.push(m[2]);
+        return;
+      }
+      if (list || quote.length) flush();
+      para.push(line);
+    });
+    flush();
+    return out.join('\n');
+  }
+
+  // Тип файла по расширению (от него зависит иконка)
+  const fileType = (f) => {
+    if (['pdf', 'zip', 'image', 'doc'].includes(f.type)) return f.type;
+    const ext = (f.file || '').split('?')[0].split('.').pop().toLowerCase();
+    if (ext === 'pdf') return 'pdf';
+    if (['zip', 'rar', '7z', 'gz', 'tar'].includes(ext)) return 'zip';
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic'].includes(ext)) return 'image';
+    return 'doc';
   };
+  const formatSize = (bytes) => {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0).replace('.', ',')} КБ`;
+    return `${(bytes / 1048576).toFixed(1).replace('.', ',')} МБ`;
+  };
+  // Размер файла сайт узнаёт сам (HEAD-запрос), вводить его в админке не нужно
+  function fillFileSizes() {
+    $$('[data-size-of]').forEach((el) => {
+      if (el.textContent.trim()) return;
+      fetch(el.dataset.sizeOf, { method: 'HEAD' })
+        .then((r) => { const n = +r.headers.get('content-length'); if (r.ok && n) el.textContent = formatSize(n); })
+        .catch(() => {});
+    });
+  }
+
+  // ID видео из ссылки YouTube (watch?v=, youtu.be/, shorts/, embed/) или «голого» ID
+  const youtubeId = (v) => {
+    const s = String(v.youtube || v.youtubeId || '').trim();
+    const m = s.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/);
+    return m ? m[1] : s;
+  };
+
+  const SOCIAL_ICONS = {
+    instagram: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>',
+    telegram: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4 3 11l6 2 2 6 3-4 5 4z"/><path d="m9 13 8-6"/></svg>',
+    github: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4 1.5-4-2-6-2.5M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6 0C6.8 2.8 5.8 3.1 5.8 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4.4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>',
+    youtube: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="m10 9 5 3-5 3z"/></svg>',
+    email: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+    link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>'
+  };
+
+  // Настройки сайта из content/site.json: имя, подпись, аватар, «Обо мне», соцсети
+  function applySite(site) {
+    if (site.name) {
+      $$('[data-site="name"]').forEach((el) => { el.textContent = site.name; });
+      const h1 = $('#typewriter');
+      h1.dataset.text = site.name;
+      h1.textContent = site.name;
+      document.title = `${site.name} — личный блог`;
+    }
+    if (site.status) $('[data-site="status"]').textContent = site.status;
+    if (site.avatar) {
+      const img = $('[data-site="avatar"]');
+      img.src = site.avatar;
+      img.alt = `Фото: ${site.name || 'автор блога'}`;
+    }
+    if (site.about) $('[data-site="about"]').innerHTML = markdown(site.about);
+    if (Array.isArray(site.socials) && site.socials.length) {
+      $('[data-site="socials"]').innerHTML = site.socials.map((s) => `
+        <li><a class="social magnetic" href="${esc(safeUrl(s.url || '#'))}" target="_blank" rel="noopener noreferrer">
+          ${SOCIAL_ICONS[norm(s.name || '')] || SOCIAL_ICONS.link}<span>${esc(s.name)}</span></a></li>`).join('');
+    }
+  }
 
   // Маленькие SVG-иконки
   const ICONS = {
@@ -75,7 +195,7 @@
   /* ---------- 2. РЕНДЕР КАРТОЧЕК ---------- */
   function renderPosts() {
     $('#postsGrid').innerHTML = DATA.posts.map((p, i) => `
-      <article class="card post-card tilt reveal" ${dataAttrs(p, p.content?.replace(/<[^>]+>/g, ' '))}>
+      <article class="card post-card tilt reveal" ${dataAttrs(p, p.body || '')}>
         <button class="post-card__btn" type="button" data-post="${i}" aria-label="Читать пост: ${esc(p.title)}"></button>
         <div class="card__media">
           <img src="${esc(p.cover)}" alt="${esc(p.alt || p.title)}" loading="lazy" decoding="async" width="900" height="560">
@@ -92,7 +212,7 @@
 
   function renderFiles() {
     $('#filesGrid').innerHTML = DATA.files.map((f) => {
-      const type = ICONS[f.type] ? f.type : 'doc';
+      const type = fileType(f);
       const fileName = (f.file || '').split('/').pop();
       return `
       <article class="card file-card tilt reveal" ${dataAttrs(f, fileName)}>
@@ -101,7 +221,7 @@
             <span class="file-icon file-icon--${type}" title="${FILE_LABEL[type]}">${ICONS[type]}</span>
             <div>
               <h3 class="card__title">${esc(f.title)}</h3>
-              <div class="meta"><span>${FILE_LABEL[type]}</span><span>${esc(f.size)}</span><time datetime="${esc(f.date)}">${formatDate(f.date)}</time></div>
+              <div class="meta"><span>${FILE_LABEL[type]}</span><span data-size-of="${esc(f.file)}">${esc(f.size || '')}</span><time datetime="${esc(f.date)}">${formatDate(f.date)}</time></div>
             </div>
           </div>
           <p class="card__text">${esc(f.description)}</p>
@@ -115,7 +235,7 @@
   }
 
   function renderVideos() {
-    $('#videosGrid').innerHTML = DATA.videos.map((v) => `
+    $('#videosGrid').innerHTML = DATA.videos.map((v) => ({ ...v, youtubeId: youtubeId(v) })).map((v) => `
       <article class="card video-card tilt reveal" ${dataAttrs(v)}>
         <div class="video-card__player">
           <button class="video-card__poster" type="button" data-video="${esc(v.youtubeId)}" data-title="${esc(v.title)}" aria-label="Смотреть видео: ${esc(v.title)}">
@@ -257,7 +377,7 @@
     cover.src = p.cover; cover.alt = p.alt || p.title;
     $('#modalTitle').textContent = p.title;
     $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"');
-    $('#modalContent').innerHTML = p.content || `<p>${esc(p.excerpt)}</p>`;
+    $('#modalContent').innerHTML = markdown(p.body || p.excerpt || '');
 
     // Блокируем прокрутку страницы, компенсируя ширину скроллбара
     const sbw = innerWidth - document.documentElement.clientWidth;
@@ -650,26 +770,41 @@
   }
 
   /* ---------- ЗАПУСК ---------- */
-  renderPosts();
-  renderFiles();
-  renderVideos();
-  renderLinks();
-  renderChips();
-  applyFilters();
-
+  // Сначала то, что не зависит от контента
   initTheme();
   initNav();
-  initSearch();
-  initModal();
-  initVideos();
   initToTop();
-  initReveal();
   initParticles();
   initCursor();
-  initTilt();
-  initMagnetic();
   initParallax();
-  initPreloader();
+
+  // Затем загружаем контент из content/*.json и строим карточки
+  loadContent().then((ok) => {
+    applySite(DATA.site);
+    renderPosts();
+    renderFiles();
+    renderVideos();
+    renderLinks();
+    renderChips();
+    applyFilters();
+    if (!ok) {
+      $$('.empty').forEach((el) => {
+        el.hidden = false;
+        el.textContent = location.protocol === 'file:'
+          ? 'Контент не загрузился: при открытии файла напрямую браузер не даёт читать content/*.json. Запустите локальный сервер (см. README).'
+          : 'Не удалось загрузить контент. Обновите страницу.';
+      });
+    }
+    fillFileSizes();
+
+    initSearch();
+    initModal();
+    initVideos();
+    initReveal();
+    initTilt();
+    initMagnetic();
+    initPreloader();
+  });
 
   $('#year').textContent = new Date().getFullYear();
 })();

@@ -536,7 +536,11 @@ h1, h2, h3 {
 
 .prose { color: var(--text); font-size: 1.05rem; line-height: 1.8; }
 .prose h3 { font-size: 1.25rem; margin: 1.8em 0 .5em; }
-.prose ul { padding-left: 1.1em; }
+.prose h4 { font-size: 1.08rem; margin: 1.5em 0 .4em; }
+.prose ul, .prose ol { padding-left: 1.1em; }
+.prose a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.prose img { border-radius: var(--radius-sm); margin: 1.2em 0; }
+.prose code { font: .9em var(--font-mono); padding: 2px 6px; border-radius: 6px; background: var(--surface-hover); }
 .prose li::marker { color: var(--text-faint); }
 .prose blockquote {
   margin: 1.6em 0; padding: 4px 0 4px 20px;

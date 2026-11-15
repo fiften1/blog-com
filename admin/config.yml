@@ -1,0 +1,134 @@
+# yaml-language-server: $schema=https://unpkg.com/@sveltia/cms/schema/sveltia-cms.json
+# =====================================================================
+# Настройки админки (Sveltia CMS)
+# Каждое сохранение в админке = коммит в репозиторий fiften1/blog-com,
+# после которого Vercel и GitHub Pages сами обновляют сайт.
+# =====================================================================
+
+backend:
+  name: github
+  repo: fiften1/blog-com
+  branch: main
+  auth_methods: [token]   # вход по токену GitHub (без отдельного сервера)
+  commit_messages:
+    create: "Админка: создано «{{slug}}»"
+    update: "Админка: обновлено «{{slug}}»"
+    delete: "Админка: удалено «{{slug}}»"
+    uploadMedia: "Админка: загружен файл {{path}}"
+    deleteMedia: "Админка: удалён файл {{path}}"
+
+site_url: https://blog-com-ten.vercel.app
+display_url: https://blog-com-ten.vercel.app
+logo_url: /images/favicon.svg
+
+# Картинки по умолчанию попадают в папку images/
+media_folder: images
+public_folder: images
+
+collections:
+  - name: content
+    label: Контент
+    files:
+      # ---------------- ПОСТЫ ----------------
+      - name: posts
+        label: Посты
+        file: content/posts.json
+        fields:
+          - name: posts
+            label: Посты
+            label_singular: пост
+            widget: list
+            add_to_top: true
+            collapsed: true
+            summary: "{{fields.date}} · {{fields.title}}"
+            fields:
+              - { name: title, label: Заголовок, widget: string }
+              - { name: date, label: Дата, widget: datetime, format: YYYY-MM-DD, time_format: false }
+              - name: cover
+                label: Обложка
+                widget: image
+                hint: Загрузите картинку или вставьте ссылку (например, с Unsplash).
+              - { name: alt, label: Описание обложки (для незрячих и поисковиков), widget: string, required: false }
+              - { name: tags, label: Теги, widget: list, required: false, hint: "Например: технологии, творчество" }
+              - { name: excerpt, label: Краткое описание (для карточки), widget: text }
+              - { name: body, label: Текст поста, widget: markdown }
+
+      # ---------------- ФАЙЛЫ ----------------
+      - name: files
+        label: Файлы
+        file: content/files.json
+        fields:
+          - name: files
+            label: Файлы
+            label_singular: файл
+            widget: list
+            add_to_top: true
+            collapsed: true
+            summary: "{{fields.date}} · {{fields.title}}"
+            fields:
+              - { name: title, label: Название, widget: string }
+              - name: file
+                label: Файл
+                widget: file
+                media_folder: /files
+                public_folder: files
+                hint: Тип (PDF, ZIP, картинка, документ) и размер сайт определит сам.
+              - { name: date, label: Дата, widget: datetime, format: YYYY-MM-DD, time_format: false }
+              - { name: description, label: Описание, widget: text, required: false }
+              - { name: tags, label: Теги, widget: list, required: false }
+
+      # ---------------- ВИДЕО ----------------
+      - name: videos
+        label: Видео
+        file: content/videos.json
+        fields:
+          - name: videos
+            label: Видео
+            label_singular: видео
+            widget: list
+            add_to_top: true
+            collapsed: true
+            summary: "{{fields.date}} · {{fields.title}}"
+            fields:
+              - { name: title, label: Название, widget: string }
+              - { name: youtube, label: Ссылка на YouTube, widget: string, hint: "Просто вставьте ссылку на видео, например https://www.youtube.com/watch?v=…" }
+              - { name: date, label: Дата, widget: datetime, format: YYYY-MM-DD, time_format: false }
+              - { name: description, label: Описание, widget: text, required: false }
+              - { name: tags, label: Теги, widget: list, required: false }
+
+      # ---------------- ССЫЛКИ ----------------
+      - name: links
+        label: Ссылки
+        file: content/links.json
+        fields:
+          - name: links
+            label: Ссылки
+            label_singular: ссылку
+            widget: list
+            collapsed: true
+            summary: "{{fields.category}} · {{fields.title}}"
+            fields:
+              - { name: title, label: Название, widget: string }
+              - { name: url, label: Адрес (URL), widget: string }
+              - { name: category, label: Категория, widget: string, hint: "Например: Инструменты, Дизайн" }
+              - { name: description, label: Описание, widget: text, required: false }
+              - { name: tags, label: Теги, widget: list, required: false }
+
+      # ---------------- НАСТРОЙКИ САЙТА ----------------
+      - name: site
+        label: Настройки сайта
+        file: content/site.json
+        fields:
+          - { name: name, label: Имя, widget: string }
+          - { name: status, label: Подпись рядом с аватаром, widget: string, required: false }
+          - { name: avatar, label: Аватар, widget: image }
+          - { name: about, label: Текст «Обо мне», widget: markdown }
+          - name: socials
+            label: Соцсети
+            label_singular: соцсеть
+            widget: list
+            summary: "{{fields.name}}"
+            hint: "Для названий Instagram, Telegram, GitHub, YouTube, Email будет своя иконка."
+            fields:
+              - { name: name, label: Название, widget: string }
+              - { name: url, label: Ссылка, widget: string }

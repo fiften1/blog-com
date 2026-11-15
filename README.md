@@ -1,31 +1,36 @@
-# Личный неоновый блог
+# Личный блог Denys Savenko
 
 Чистый HTML + CSS + JS, без фреймворков и сборки.
+Сайт: https://blog-com-ten.vercel.app · админка: https://blog-com-ten.vercel.app/admin/
 
 ```
-index.html   — разметка, SEO и Open Graph
-style.css    — оформление, палитра в CSS-переменных (:root)
-script.js    — логика и анимации
-data.js      — ВЕСЬ контент: posts, files, videos, links
-files/       — файлы для скачивания
-images/      — аватар, favicon, свои картинки
+index.html        — разметка, SEO и Open Graph
+style.css         — оформление, палитра в CSS-переменных (:root)
+script.js         — логика и анимации
+content/*.json    — ВЕСЬ контент: посты, файлы, видео, ссылки, настройки сайта
+admin/            — админка (Sveltia CMS) и её настройки config.yml
+files/            — файлы для скачивания
+images/           — аватар, favicon, обложки
 ```
+
+## Админка
+1. Откройте `/admin/` и нажмите «Войти с помощью токена доступа».
+2. Создайте токен GitHub: https://github.com/settings/personal-access-tokens/new
+   - Repository access → Only select repositories → `blog-com`
+   - Permissions → Repository permissions → **Contents: Read and write**
+3. Вставьте токен в админку. Он хранится только в этом браузере.
+
+Каждое «Сохранить» в админке — это коммит в репозиторий. Vercel и GitHub Pages
+обновляют сайт сами примерно за минуту.
+
+Текст постов и «Обо мне» пишется в Markdown: `## подзаголовок`, `- список`,
+`> цитата`, `**жирный**`, `*курсив*`, `[ссылка](https://…)`.
 
 ## Открыть локально
-Дважды кликните `index.html`. Всё работает, кроме проигрывания YouTube:
-плеер может не запуститься со страницы `file://`. Чтобы проверить видео, запустите локальный сервер:
+Контент грузится из JSON, поэтому двойной клик по `index.html` не сработает —
+нужен локальный сервер:
 
 ```
 python3 -m http.server 8000
 ```
 и откройте http://localhost:8000
-
-## Добавить контент
-Откройте `data.js`: в начале файла есть примеры. Скопируйте объект в нужном массиве и поменяйте поля.
-Файлы кладите в `files/`, картинки в `images/`.
-Имя автора и тексты «Обо мне» правятся прямо в `index.html`.
-
-## Опубликовать на GitHub Pages
-1. Создайте репозиторий на github.com, загрузите в него все файлы (Add file → Upload files).
-2. Settings → Pages → Source: «Deploy from a branch», ветка `main`, папка `/ (root)` → Save.
-3. Через 1–2 минуты сайт будет по адресу `https://<логин>.github.io/<репозиторий>/`.

@@ -1,0 +1,81 @@
+{
+  "links": [
+    {
+      "title": "MDN Web Docs",
+      "url": "https://developer.mozilla.org/ru/",
+      "category": "Документация",
+      "description": "Главный справочник по HTML, CSS и JavaScript.",
+      "tags": [
+        "код"
+      ]
+    },
+    {
+      "title": "web.dev",
+      "url": "https://web.dev/",
+      "category": "Документация",
+      "description": "Гайды по скорости, доступности и современным API.",
+      "tags": [
+        "код",
+        "технологии"
+      ]
+    },
+    {
+      "title": "Can I use",
+      "url": "https://caniuse.com/",
+      "category": "Инструменты",
+      "description": "Проверка поддержки CSS и JS-функций в браузерах.",
+      "tags": [
+        "код"
+      ]
+    },
+    {
+      "title": "Coolors",
+      "url": "https://coolors.co/",
+      "category": "Дизайн",
+      "description": "Генератор цветовых палитр за пару секунд.",
+      "tags": [
+        "дизайн"
+      ]
+    },
+    {
+      "title": "Figma",
+      "url": "https://www.figma.com/",
+      "category": "Дизайн",
+      "description": "Макеты, прототипы и совместная работа в браузере.",
+      "tags": [
+        "дизайн",
+        "инструменты"
+      ]
+    },
+    {
+      "title": "Unsplash",
+      "url": "https://unsplash.com/",
+      "category": "Ресурсы",
+      "description": "Бесплатные фото высокого качества — отсюда обложки блога.",
+      "tags": [
+        "фото",
+        "творчество"
+      ]
+    },
+    {
+      "title": "Excalidraw",
+      "url": "https://excalidraw.com/",
+      "category": "Инструменты",
+      "description": "Рисованные схемы и наброски прямо в браузере.",
+      "tags": [
+        "инструменты",
+        "продуктивность"
+      ]
+    },
+    {
+      "title": "GitHub Pages",
+      "url": "https://pages.github.com/",
+      "category": "Хостинг",
+      "description": "Бесплатный хостинг для статических сайтов вроде этого.",
+      "tags": [
+        "технологии",
+        "инструменты"
+      ]
+    }
+  ]
+}
