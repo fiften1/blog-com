@@ -82,6 +82,19 @@ module.exports = async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
+      // Лёгкая проверка статусов (сайт спрашивает раз в несколько секунд, пока кабинет открыт):
+      // ?ids=a,b → { statuses: { a: 'confirmed' | 'new' | null } }, null — записи больше нет
+      if (req.query && req.query.ids !== undefined) {
+        if (!user || !lib.hasDb()) return res.status(200).json({ ok: true, statuses: {} });
+        const ids = String(req.query.ids).split(',').filter((id) => /^[a-f0-9]{6,20}$/.test(id)).slice(0, 20);
+        const raws = ids.length ? await lib.pipeline(ids.map((id) => ['GET', `bk:${id}`])) : [];
+        const statuses = {};
+        ids.forEach((id, i) => {
+          const b = raws[i] ? JSON.parse(raws[i]) : null;
+          statuses[id] = b && String(b.email || '').toLowerCase() === user.email ? (b.status || 'new') : null;
+        });
+        return res.status(200).json({ ok: true, statuses });
+      }
       const out = { ok: true, enabled, clientId: CLIENT_ID() || null, user: null, bookings: [] };
       if (user) {
         out.user = { email: user.email, name: user.name, picture: user.picture };

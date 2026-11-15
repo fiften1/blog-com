@@ -852,6 +852,29 @@
   const DEFAULT_SERVICES = ['Создание сайта', 'Монтаж видео', 'Дизайн', 'Консультация', 'Другое'];
   const DEFAULT_SLOTS = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
 
+  // Живой статус только что отправленной заявки (раз в 12 с, до 30 минут, пока вкладка видна)
+  function watchStatus(manageUrl) {
+    let u;
+    try { u = new URL(manageUrl); } catch (e) { return; }
+    const q = `/api/manage?id=${encodeURIComponent(u.searchParams.get('id'))}&t=${encodeURIComponent(u.searchParams.get('t'))}`;
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      const el = $('#liveStatus');
+      if (!el || Date.now() - started > 30 * 60e3) return clearInterval(timer);
+      if (document.hidden) return;
+      try {
+        const r = await fetch(q, { cache: 'no-store' });
+        if (r.status === 404) { el.textContent = 'отменена'; el.className = 'mybk__status is-off is-flash'; return clearInterval(timer); }
+        const out = await r.json();
+        if (out.ok && out.booking.status === 'confirmed') {
+          el.textContent = 'подтверждено ✓';
+          el.className = 'mybk__status is-ok is-flash';
+          clearInterval(timer);
+        }
+      } catch (e) { /* попробуем позже */ }
+    }, 12000);
+  }
+
   // Откуда пришёл посетитель: utm_source из ссылки или сайт-источник (для статистики заявок)
   function visitSource() {
     try {
@@ -1088,8 +1111,10 @@
             <span class="form-done__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg></span>
             <h3>Заявка отправлена</h3>
             <p>${esc(data.service)} · ${esc(when)}. Я свяжусь с вами по телефону или почте, чтобы подтвердить время.</p>
-            ${out.manageUrl ? `<p>Подтверждение отправлено на почту. Если планы поменяются, запись можно <a href="${esc(out.manageUrl)}">перенести или отменить</a>.</p>` : ''}
+            ${out.manageUrl ? `<p class="form-done__status">Статус: <span class="mybk__status is-new" id="liveStatus">ждёт подтверждения</span></p>
+            <p>Подтверждение отправлено на почту. Если планы поменяются, запись можно <a href="${esc(out.manageUrl)}">перенести или отменить</a>.</p>` : ''}
           </div>`;
+        if (out.manageUrl) watchStatus(out.manageUrl);
         form.closest('.booking').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
         account.refresh();
       } catch (err) {
@@ -1299,11 +1324,67 @@
       }
     });
 
+    // ---- Живое обновление: пока кабинет открыт, раз в 10 с спрашиваем статусы ----
+    const STATUS_TEXT = { confirmed: 'подтверждено', new: 'ждёт подтверждения' };
+    const editing = () => !!body.querySelector('.mybk__move.is-open');
+    let liveTimer = null;
+    let fullTick = 0;
+
+    // Поменять статус у записи прямо в разметке, без перерисовки (чтобы не сбить ввод)
+    function patchStatus(id, status) {
+      const el = body.querySelector(`.mybk__item[data-id="${CSS.escape(id)}"] .mybk__status`);
+      if (!el) return;
+      el.textContent = STATUS_TEXT[status] || STATUS_TEXT.new;
+      el.className = `mybk__status ${status === 'confirmed' ? 'is-ok' : 'is-new'} is-flash`;
+    }
+
+    async function poll() {
+      if (document.hidden || !st.user || modalEl.hidden) return;
+      try {
+        // раз в минуту — полный список (вдруг появилась новая запись), остальное время — только статусы
+        if (++fullTick % 6 === 0 && !editing()) {
+          const out = await api();
+          const before = JSON.stringify(st.bookings);
+          st.bookings = out.bookings || [];
+          if (JSON.stringify(st.bookings) !== before) render();
+          return;
+        }
+        if (!st.bookings.length) return;
+        const r = await fetch(`/api/account?ids=${st.bookings.map((b) => b.id).join(',')}`, { credentials: 'same-origin', cache: 'no-store' });
+        const out = await r.json();
+        if (!out.ok) return;
+        let gone = false;
+        st.bookings.forEach((b) => {
+          if (!(b.id in out.statuses)) return;
+          const now = out.statuses[b.id];
+          if (now === null) { gone = true; return; }
+          if (now !== b.status) {
+            b.status = now;
+            patchStatus(b.id, now);
+            if (now === 'confirmed') say(`✅ Запись на ${human(b.date)}, ${b.time} подтверждена`, 'is-ok');
+          }
+        });
+        if (gone && !editing()) {
+          const was = st.bookings.length;
+          st.bookings = st.bookings.filter((b) => out.statuses[b.id] !== null);
+          render();
+          if (st.bookings.length < was) say('Одна из записей была отменена. Письмо с подробностями — у вас на почте.', 'is-error');
+        }
+      } catch (e) { /* сеть пропала — попробуем в следующий раз */ }
+    }
+    const startLive = () => { stopLive(); fullTick = 0; liveTimer = setInterval(poll, 10000); };
+    const stopLive = () => { clearInterval(liveTimer); liveTimer = null; };
+    // Вернулись на вкладку — проверяем сразу
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && liveTimer) poll(); });
+
     // Окно кабинета
     let lastFocus = null;
     function open() {
       lastFocus = document.activeElement;
       render();
+      // сразу подтягиваем свежий список (статусы могли поменяться, пока окно было закрыто)
+      if (st.user) api().then((out) => { st.bookings = out.bookings || []; if (!editing()) render(); }).catch(() => {});
+      startLive();
       const sbw = innerWidth - document.documentElement.clientWidth;
       document.body.style.paddingRight = sbw ? sbw + 'px' : '';
       document.body.classList.add('is-locked');
@@ -1314,6 +1395,7 @@
     }
     function close() {
       if (modalEl.hidden) return;
+      stopLive();
       modalEl.classList.remove('is-open');
       setTimeout(() => {
         modalEl.hidden = true;

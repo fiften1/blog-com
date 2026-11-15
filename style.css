@@ -653,6 +653,15 @@ h1, h2, h3 {
 .mybk__status { font: .72rem var(--font-mono); padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; }
 .mybk__status.is-ok { color: #22c55e; }
 .mybk__status.is-new { color: var(--cyan); }
+.mybk__status.is-off { color: var(--pink); }
+/* короткая подсветка, когда статус поменялся «на лету» */
+.mybk__status.is-flash { animation: statusFlash 1.6s var(--ease); }
+@keyframes statusFlash {
+  0% { box-shadow: 0 0 0 0 currentColor; transform: scale(1); }
+  20% { box-shadow: 0 0 14px 2px currentColor; transform: scale(1.08); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+}
+.form-done__status { display: flex; align-items: center; gap: 8px; }
 .mybk__actions { display: flex; gap: 8px; margin-top: 14px; }
 .mybk__actions .btn { flex: 1; }
 .mybk__move { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
