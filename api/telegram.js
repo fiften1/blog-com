@@ -185,7 +185,7 @@ async function onButton(q) {
     // --- отмена записи ---
     case 'cancel':
     case 'del': {
-      const b = await lib.cancel(arg, 'owner');
+      const b = await lib.cancel(arg, 'owner', 'в чате');
       if (b && b.time !== lib.WHOLE_DAY) await mail.notifyClient('cancelledByOwner', b);
       if (b) await lib.syncOwnerMessage(b, 'cancelled', action === 'cancel' ? messageId : undefined);
       if (!b) {

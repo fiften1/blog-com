@@ -53,11 +53,11 @@ module.exports = async function handler(req, res) {
     switch (body.action) {
       case 'month': {
         if (!isDate(body.from) || !isDate(body.to)) return res.status(400).json({ ok: false, error: 'Неверный период.' });
-        const [list, cfg, pending] = await Promise.all([lib.rangeBookings(body.from, body.to), (async () => ({ slots: await lib.siteSlots(), services: await lib.siteServices() }))(), pendingList()]);
+        const [list, cfg, pending, cancelled] = await Promise.all([lib.rangeBookings(body.from, body.to), (async () => ({ slots: await lib.siteSlots(), services: await lib.siteServices() }))(), pendingList(), lib.cancelLog()]);
         return res.status(200).json({
           ok: true, today: lib.todayISO(), nowMinutes: lib.nowMinutes(),
           slots: cfg.slots, services: cfg.services, closeTypes: lib.CLOSE_TYPES,
-          bookings: list.map(view), pending
+          bookings: list.map(view), pending, cancelled
         });
       }
 
@@ -84,7 +84,7 @@ module.exports = async function handler(req, res) {
       }
 
       case 'cancel': {
-        const b = await lib.cancel(clean(body.id, 20), 'owner');
+        const b = await lib.cancel(clean(body.id, 20), 'owner', 'в приложении');
         if (!b) return res.status(404).json({ ok: false, error: 'Запись уже отменена.' });
         await lib.syncOwnerMessage(b, 'cancelled');
         if (b.time !== lib.WHOLE_DAY) await mail.notifyClient('cancelledByOwner', b);

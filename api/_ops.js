@@ -31,7 +31,7 @@ async function tellOwner(title, b, status) {
 // Отмена клиентом. via — откуда: 'по ссылке из письма' / 'в личном кабинете'
 async function clientCancel(b, via) {
   if (isPast(b)) return { error: 'Эта запись уже прошла.', code: 400 };
-  await lib.cancel(b.id, 'client');
+  await lib.cancel(b.id, 'client', via);
   await lib.syncOwnerMessage(b, 'cancelled');
   await tellOwner(`❌ <b>Клиент сам отменил запись</b> (${lib.esc(via)})`, b, 'cancelled');
   await mail.notifyClient('cancelledByClient', b);

@@ -107,8 +107,9 @@ async function saveBooking(b) {
 }
 
 // Отменить запись: освобождает слот и удаляет данные.
-// by: 'owner' | 'client' — для статистики отмен (без by — не считаем, например при откате)
-async function cancel(id, by) {
+// by: 'owner' | 'client' — для статистики отмен (без by — не считаем, например при откате или переносе)
+// via — откуда отменили (для журнала отмен в приложении)
+async function cancel(id, by, via) {
   const b = await getBooking(id);
   if (!b) return null;
   const owner = await redis('HGET', `day:${b.date}`, b.time);
@@ -121,9 +122,30 @@ async function cancel(id, by) {
     cmds.push(['SET', `cx:${id}`, cx, 'EX', CX_SEC]);
     if (b.email) cmds.push(['SADD', `ucx:${String(b.email).toLowerCase()}`, id], ['EXPIRE', `ucx:${String(b.email).toLowerCase()}`, CX_SEC]);
   }
+  // Журнал отмен (60 дней) — вкладка «Заявки → Отменённые» в приложении
+  if (by && b.time !== WHOLE_DAY) {
+    const now = Date.now();
+    const entry = {
+      id, date: b.date, time: b.time, name: b.name || '', phone: b.phone || '', email: b.email || '',
+      service: b.service || '', source: b.source || 'site', status: b.status || 'new', comment: b.comment || '',
+      by, via: via || '', cancelledAt: new Date(now).toISOString()
+    };
+    cmds.push(['SET', `cl:${id}`, JSON.stringify(entry), 'EX', CL_SEC], ['ZADD', 'cancels', now, id],
+      ['ZREMRANGEBYSCORE', 'cancels', '-inf', now - CL_SEC * 1000]);
+  }
   await pipeline(cmds);
   if (by && b.time !== WHOLE_DAY) await track([`cancel:${by}`]).catch(() => {});
   return b;
+}
+
+/* ---------- Журнал отмен: последние, новые сверху ---------- */
+const CL_SEC = 60 * 24 * 3600;
+async function cancelLog(limit = 60) {
+  const ids = await redis('ZRANGEBYSCORE', 'cancels', Date.now() - CL_SEC * 1000, '+inf');
+  if (!ids || !ids.length) return [];
+  const last = ids.slice(-limit).reverse();
+  const raws = await pipeline(last.map((id) => ['GET', `cl:${id}`]));
+  return raws.filter(Boolean).map((r) => JSON.parse(r));
 }
 
 /* ---------- Отменённые вами записи (для «выбрать другое время») ---------- */
@@ -485,5 +507,5 @@ module.exports = {
   getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts,
   nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
   favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
-  clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage
+  clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage, cancelLog
 };
