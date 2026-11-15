@@ -654,6 +654,10 @@ h1, h2, h3 {
 .mybk__status.is-ok { color: #22c55e; }
 .mybk__status.is-new { color: var(--cyan); }
 .mybk__status.is-off { color: var(--pink); }
+/* запись, которую отменили вы: извинение и «выбрать другое время» */
+.mybk__item.is-cancelled { border-color: rgba(236, 72, 153, .35); background: rgba(236, 72, 153, .05); }
+.mybk__item.is-cancelled .mybk__when { text-decoration: line-through; text-decoration-color: rgba(236, 72, 153, .6); color: var(--text-muted); }
+.mybk__sorry { margin: 10px 0 0; font-size: .9rem; line-height: 1.55; color: var(--text); }
 /* короткая подсветка, когда статус поменялся «на лету» */
 .mybk__status.is-flash { animation: statusFlash 1.6s var(--ease); }
 @keyframes statusFlash {

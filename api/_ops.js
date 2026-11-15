@@ -58,4 +58,34 @@ async function clientMove(b, date, time, via) {
   return { ok: true, booking: nb };
 }
 
-module.exports = { isPast, clientView, clientCancel, clientMove };
+// Проверка нового времени (общая для переноса и повторной записи после отмены)
+async function checkSlot(date, time) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{1,2}:\d{2}$/.test(time)) return 'Выберите дату и время.';
+  if (isPast({ date, time })) return 'Это время уже прошло.';
+  if (date > lib.addDays(lib.todayISO(), 62)) return 'Эта дата недоступна.';
+  if (!(await lib.siteSlots()).includes(time)) return 'Это время недоступно.';
+  return null;
+}
+
+// Как видна клиенту запись, которую отменили вы
+const cancelledView = (b) => ({
+  id: b.id, date: b.date, time: b.time, service: b.service || '', name: b.name || '', status: 'cancelled', cancelled: true
+});
+
+// Повторная запись на другое время после вашей отмены — с теми же данными клиента
+async function clientRebook(cx, date, time, via) {
+  date = String(date || '');
+  time = String(time || '');
+  const err = await checkSlot(date, time);
+  if (err) return { error: err, code: 400 };
+  const { id: _old, status: _s, createdAt: _c, reminded: _r, cancelledAt: _x, movedFrom: _m, ...rest } = cx;
+  const nb = await lib.reserve({ ...rest, date, time, status: 'new', rebookedFrom: `${cx.date} ${cx.time}` }, { count: false });
+  if (!nb) return { error: 'Это время уже заняли. Выберите другое.', code: 409, taken: true };
+  await lib.forgetCancelled(cx);
+  await lib.track(['rebook']).catch(() => {});
+  await tellOwner(`🔁 <b>Клиент выбрал новое время после вашей отмены</b> (${lib.esc(via)})\nБыло: ${lib.esc(lib.humanDate(cx.date, true))}, ${lib.esc(cx.time)}`, nb);
+  await mail.sendToClient('rebooked', nb);
+  return { ok: true, booking: nb };
+}
+
+module.exports = { isPast, clientView, cancelledView, clientCancel, clientMove, clientRebook, checkSlot };

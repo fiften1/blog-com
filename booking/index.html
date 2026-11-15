@@ -49,7 +49,9 @@
     .when { font: 500 22px/1.3 'Space Grotesk', sans-serif; color: var(--heading); letter-spacing: -.02em; }
     .meta { color: var(--muted); font-size: 14px; margin-top: 4px; }
     .status { display: inline-block; margin-top: 12px; font: 12px ui-monospace, Menlo, monospace; padding: 3px 10px; border-radius: 99px; border: 1px solid currentColor; }
-    .status--ok { color: #22c55e; } .status--new { color: var(--cyan); }
+    .status--ok { color: #22c55e; } .status--new { color: var(--cyan); } .status--off { color: var(--pink); }
+    .when.is-off { text-decoration: line-through; text-decoration-color: var(--pink); color: var(--muted); }
+    .sorry { margin: 14px 0 0; line-height: 1.6; }
     .status.is-flash { animation: flash 1.6s cubic-bezier(.22,1,.36,1); }
     @keyframes flash { 20% { box-shadow: 0 0 14px 2px currentColor; transform: scale(1.08); } }
     .actions { display: flex; gap: 10px; margin-top: 24px; flex-wrap: wrap; }
@@ -110,6 +112,7 @@
     };
 
     function render(b) {
+      if (b.cancelled) return renderCancelled(b);
       card.innerHTML = `
         <h1>Ваша запись</h1>
         <p class="sub">${b.name ? esc(b.name) + ', здесь' : 'Здесь'} можно перенести или отменить запись.</p>
@@ -177,6 +180,57 @@
       });
     }
 
+    // Свободное время на дату для выбора (общая часть)
+    async function freeTimes(date, exclude) {
+      let taken = [], closed = null;
+      try { const r = await (await fetch(`/api/slots?date=${date}`, { cache: 'no-store' })).json(); taken = r.taken || []; closed = r.closed; } catch (e) {}
+      const now = new Date(); const nowMin = now.getHours() * 60 + now.getMinutes() + 30;
+      const isToday = date === isoLocal(now);
+      const free = closed ? [] : slots.filter((s) => { const [h, m] = s.split(':').map(Number); return !taken.includes(s) && !(isToday && h * 60 + m < nowMin) && !(exclude && date === exclude.date && s === exclude.time); });
+      return { free, closed };
+    }
+
+    function renderCancelled(b) {
+      card.innerHTML = `
+        <h1>Запись отменена</h1>
+        <div class="when is-off">${esc(human(b.date))}, ${esc(b.time)}</div>
+        ${b.service ? `<div class="meta">${esc(b.service)}</div>` : ''}
+        <span class="status status--off" id="status">отменена</span>
+        <p class="sorry">К сожалению, эту запись пришлось отменить — приношу извинения${b.name ? ', ' + esc(b.name) : ''}. Выберите другое удобное время: анкету заполнять заново не нужно, ваши данные сохранены.</p>
+        <div class="move is-open">
+          <div class="row">
+            <div><label for="d">Дата</label><input type="date" id="d"></div>
+            <div><label for="tm">Время</label><select id="tm"><option value="">Сначала дата</option></select></div>
+          </div>
+          <div class="actions"><button class="btn btn--primary" id="rebook" disabled>Записаться на это время</button></div>
+        </div>
+        <p class="msg" id="msg"></p>`;
+      const d = $('#d'), tm = $('#tm'), go = $('#rebook'), msg = $('#msg');
+      const today = new Date(), max = new Date(); max.setDate(max.getDate() + 60);
+      d.min = isoLocal(today); d.max = isoLocal(max);
+      d.addEventListener('change', async () => {
+        tm.innerHTML = '<option value="">Загружаю…</option>'; go.disabled = true;
+        const { free, closed } = await freeTimes(d.value);
+        tm.innerHTML = free.length ? '<option value="">Выбрать</option>' + free.map((s) => `<option>${s}</option>`).join('')
+          : `<option value="">${closed ? esc(closed) + ' — записи нет' : 'Свободного времени нет'}</option>`;
+      });
+      tm.addEventListener('change', () => { go.disabled = !tm.value; });
+      go.addEventListener('click', async () => {
+        go.disabled = true; msg.textContent = 'Записываю…'; msg.className = 'msg';
+        try {
+          const out = await call('POST', { action: 'rebook', date: d.value, time: tm.value });
+          const u = new URL(out.manageUrl); id = u.searchParams.get('id'); t = u.searchParams.get('t');
+          history.replaceState(null, '', `?id=${id}&t=${t}`);
+          render(out.booking);
+          const m = $('#msg');
+          if (m) { m.textContent = `Готово! Вы записаны на ${human(out.booking.date)}, ${out.booking.time}. Письмо с подтверждением отправлено.`; m.className = 'msg is-ok'; }
+        } catch (e) {
+          msg.textContent = e.message; msg.className = 'msg is-error'; go.disabled = false;
+          if (e.taken) d.dispatchEvent(new Event('change'));
+        }
+      });
+    }
+
     (async () => {
       if (!id || !t) return done('?', 'Ссылка неполная', 'Откройте ссылку из письма целиком.');
       try {
@@ -192,6 +246,8 @@
         if (document.hidden || !document.getElementById('status')) return;
         try {
           const b = (await call('GET')).booking;
+          if (b.cancelled && !current.cancelled) { current = b; return renderCancelled(b); }
+          if (b.cancelled) return;
           if (b.status !== current.status) {
             current.status = b.status;
             const el = document.getElementById('status');

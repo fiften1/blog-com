@@ -105,6 +105,9 @@ module.exports = async function handler(req, res) {
     return res.status(502).json({ ok: false, error: 'Не получилось отправить заявку.' });
   }
 
+  // Профиль для автозаполнения анкеты в следующий раз (имя и телефон по почте)
+  if (lib.hasDb()) await lib.saveProfile(booking.email, booking).catch(() => {});
+
   // 3. Письмо клиенту «Заявка получена» со ссылкой «изменить или отменить»
   if (booking.id) await mail.sendToClient('received', booking);
 

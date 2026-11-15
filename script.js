@@ -929,7 +929,7 @@
     const select = $('#phoneCountry');
     const input = $('#bookingPhone');
     const code = $('#phoneCode');
-    if (!select || !input) return () => input && input.value;
+    if (!select || !input) return { get: () => (input ? input.value : ''), set: () => {} };
 
     select.innerHTML = COUNTRIES.map(([cc, name, dial]) => `<option value="${cc}">${flag(cc)} ${esc(name)} ${dial}</option>`).join('');
     const byCode = (cc) => COUNTRIES.find((c) => c[0] === cc) || COUNTRIES[0];
@@ -965,12 +965,21 @@
       input.value = rest;
     });
 
-    // Полный номер для заявки: «+48 512 345 678»
-    return () => {
-      const national = input.value.trim();
-      return national ? `${byCode(select.value)[2]} ${national}` : '';
+    return {
+      // Полный номер для заявки: «+48 512 345 678»
+      get: () => {
+        const national = input.value.trim();
+        return national ? `${byCode(select.value)[2]} ${national}` : '';
+      },
+      // Подставить сохранённый номер: страна определится сама по коду
+      set: (full) => {
+        if (!full || input.value.trim()) return;
+        input.value = String(full);
+        input.dispatchEvent(new Event('input'));
+      }
     };
   }
+  let phoneApi = { get: () => '', set: () => {} };
 
   function initBooking(site) {
     const form = $('#bookingForm');
@@ -982,7 +991,7 @@
     const status = $('#bookingStatus');
     const submit = $('#bookingSubmit');
     const startedAt = Date.now();
-    const fullPhone = initPhone();
+    phoneApi = initPhone();
 
     // Услуги — радиокнопки-«таблетки»
     $('#serviceOptions').innerHTML = services.map((s, i) => `
@@ -1091,7 +1100,7 @@
         const res = await fetch('/api/booking', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...data, phone: fullPhone(), ref: visitSource(), elapsed: Date.now() - startedAt })
+          body: JSON.stringify({ ...data, phone: phoneApi.get(), ref: visitSource(), elapsed: Date.now() - startedAt })
         });
         const out = await res.json().catch(() => ({}));
         if (out.taken) {
@@ -1129,7 +1138,7 @@
   // Клиент видит свои будущие записи (по почте Google), переносит и отменяет их.
   // Кнопка в шапке появляется, только если в Vercel задан GOOGLE_CLIENT_ID.
   const account = (() => {
-    const st = { enabled: false, clientId: null, user: null, bookings: [] };
+    const st = { enabled: false, clientId: null, user: null, bookings: [], profile: null };
     const modalEl = $('#accountModal');
     const body = $('#accountBody');
     const btn = $('#accountBtn');
@@ -1162,8 +1171,10 @@
     function autofill() {
       const form = $('#bookingForm');
       if (!st.user || !form || !form.elements.email) return;
-      if (!form.elements.name.value && st.user.name) form.elements.name.value = st.user.name;
+      const prof = st.profile || {};
+      if (!form.elements.name.value && (prof.name || st.user.name)) form.elements.name.value = prof.name || st.user.name;
       if (!form.elements.email.value) form.elements.email.value = st.user.email;
+      if (prof.phone) phoneApi.set(prof.phone);
     }
 
     // Подгружаем скрипт Google только когда нужен
@@ -1182,7 +1193,7 @@
       say('Вхожу…');
       try {
         const out = await api({ action: 'login', credential: resp.credential });
-        st.user = out.user; st.bookings = out.bookings || [];
+        st.user = out.user; st.bookings = out.bookings || []; st.profile = out.profile || null;
         paintButton(); autofill(); render();
       } catch (e) { say(e.message, 'is-error'); }
     }
@@ -1211,20 +1222,26 @@
 
       const u = st.user;
       const items = st.bookings.map((b) => `
-        <article class="mybk__item" data-id="${esc(b.id)}">
+        <article class="mybk__item ${b.cancelled ? 'is-cancelled' : ''}" data-id="${esc(b.id)}">
           <div class="mybk__when">${esc(human(b.date))}, ${esc(b.time)}</div>
           <div class="mybk__meta">${b.service ? `<span>${esc(b.service)}</span>` : ''}
-            <span class="mybk__status ${b.status === 'confirmed' ? 'is-ok' : 'is-new'}">${b.status === 'confirmed' ? 'подтверждено' : 'ждёт подтверждения'}</span></div>
+            ${b.cancelled
+              ? '<span class="mybk__status is-off">отменена</span>'
+              : `<span class="mybk__status ${b.status === 'confirmed' ? 'is-ok' : 'is-new'}">${b.status === 'confirmed' ? 'подтверждено' : 'ждёт подтверждения'}</span>`}</div>
+          ${b.cancelled ? '<p class="mybk__sorry">К сожалению, эту запись пришлось отменить — приношу извинения. Выберите другое удобное время: анкету заполнять заново не нужно, ваши данные сохранены.</p>' : ''}
           <div class="mybk__actions">
-            <button class="btn btn--ghost btn--sm" data-act="move">Перенести</button>
-            <button class="btn btn--ghost btn--sm btn--danger" data-act="cancel">Отменить</button>
+            ${b.cancelled
+              ? `<button class="btn btn--primary btn--sm" data-act="move">Выбрать другое время</button>
+                 <button class="btn btn--ghost btn--sm" data-act="dismiss">Скрыть</button>`
+              : `<button class="btn btn--ghost btn--sm" data-act="move">Перенести</button>
+                 <button class="btn btn--ghost btn--sm btn--danger" data-act="cancel">Отменить</button>`}
           </div>
           <div class="mybk__move">
             <div class="form__row">
               <label class="field"><span class="form__label">Новая дата</span><input type="date" data-f="date"></label>
               <label class="field"><span class="form__label">Время</span><select data-f="time"><option value="">Сначала дата</option></select></label>
             </div>
-            <button class="btn btn--primary btn--sm" data-act="save" disabled>Перенести на это время</button>
+            <button class="btn btn--primary btn--sm" data-act="save" disabled>${b.cancelled ? 'Записаться на это время' : 'Перенести на это время'}</button>
           </div>
         </article>`).join('');
 
@@ -1301,12 +1318,18 @@
         if (box.classList.contains('is-open')) d.focus();
         return;
       }
+      if (act === 'dismiss') {
+        a.disabled = true;
+        try { const out = await api({ action: 'dismiss', id: b.id }); st.bookings = out.bookings || []; render(); }
+        catch (err) { a.disabled = false; say(err.message, 'is-error'); }
+        return;
+      }
       if (act === 'cancel') {
         if (!confirm(`Отменить запись на ${human(b.date)}, ${b.time}? Время освободится для других.`)) return;
         a.disabled = true; say('Отменяю…');
         try {
           const out = await api({ action: 'cancel', id: b.id });
-          st.bookings = out.bookings; render(); say('Запись отменена. Письмо с подтверждением отправлено.', 'is-ok');
+          st.bookings = out.bookings || []; render(); say('Запись отменена. Письмо с подтверждением отправлено.', 'is-ok');
         } catch (err) { a.disabled = false; say(err.message, 'is-error'); }
         return;
       }
@@ -1315,8 +1338,9 @@
         const time = item.querySelector('[data-f="time"]').value;
         a.disabled = true; say('Переношу…');
         try {
-          const out = await api({ action: 'move', id: b.id, date, time });
-          st.bookings = out.bookings; render(); say(`Готово! Новое время: ${human(date)}, ${time}.`, 'is-ok');
+          const out = await api({ action: b.cancelled ? 'rebook' : 'move', id: b.id, date, time });
+          st.bookings = out.bookings || []; render();
+          say(b.cancelled ? `Готово! Вы записаны на ${human(date)}, ${time}. Скоро подтвержу.` : `Готово! Новое время: ${human(date)}, ${time}.`, 'is-ok');
         } catch (err) {
           a.disabled = false; say(err.message, 'is-error');
           if (err.taken) fillTimes(item, b);
@@ -1349,15 +1373,17 @@
           if (JSON.stringify(st.bookings) !== before) render();
           return;
         }
-        if (!st.bookings.length) return;
-        const r = await fetch(`/api/account?ids=${st.bookings.map((b) => b.id).join(',')}`, { credentials: 'same-origin', cache: 'no-store' });
+        const active = st.bookings.filter((b) => !b.cancelled);
+        if (!active.length) return;
+        const r = await fetch(`/api/account?ids=${active.map((b) => b.id).join(',')}`, { credentials: 'same-origin', cache: 'no-store' });
         const out = await r.json();
         if (!out.ok) return;
-        let gone = false;
-        st.bookings.forEach((b) => {
+        let gone = false, cancelledNow = null;
+        active.forEach((b) => {
           if (!(b.id in out.statuses)) return;
           const now = out.statuses[b.id];
           if (now === null) { gone = true; return; }
+          if (now === 'cancelled') { gone = true; cancelledNow = b; return; }
           if (now !== b.status) {
             b.status = now;
             patchStatus(b.id, now);
@@ -1365,10 +1391,10 @@
           }
         });
         if (gone && !editing()) {
-          const was = st.bookings.length;
-          st.bookings = st.bookings.filter((b) => out.statuses[b.id] !== null);
+          const full = await api();
+          st.bookings = full.bookings || [];
           render();
-          if (st.bookings.length < was) say('Одна из записей была отменена. Письмо с подробностями — у вас на почте.', 'is-error');
+          if (cancelledNow) say(`Запись на ${human(cancelledNow.date)}, ${cancelledNow.time} отменена — приношу извинения. Выберите другое время ниже.`, 'is-error');
         }
       } catch (e) { /* сеть пропала — попробуем в следующий раз */ }
     }
@@ -1412,7 +1438,7 @@
       if (Array.isArray(site && site.slots) && site.slots.length) slotsCfg = site.slots;
       try {
         const out = await api();
-        Object.assign(st, { enabled: out.enabled, clientId: out.clientId, user: out.user, bookings: out.bookings || [] });
+        Object.assign(st, { enabled: out.enabled, clientId: out.clientId, user: out.user, bookings: out.bookings || [], profile: out.profile || null });
       } catch (e) { st.enabled = false; } // нет сервера (например, GitHub Pages) — кабинет скрыт
       paintButton();
       autofill();

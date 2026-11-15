@@ -114,9 +114,44 @@ async function cancel(id, by) {
   const owner = await redis('HGET', `day:${b.date}`, b.time);
   const cmds = [['DEL', `bk:${id}`], ['ZREM', 'bookings', id]];
   if (owner === id) cmds.push(['HDEL', `day:${b.date}`, b.time]);
+  // Отменили вы — запоминаем запись на 30 дней, чтобы клиент увидел извинение
+  // и мог одним нажатием выбрать другое время (без повторного заполнения анкеты)
+  if (by === 'owner' && b.time !== WHOLE_DAY) {
+    const cx = JSON.stringify({ ...b, cancelledAt: new Date().toISOString() });
+    cmds.push(['SET', `cx:${id}`, cx, 'EX', CX_SEC]);
+    if (b.email) cmds.push(['SADD', `ucx:${String(b.email).toLowerCase()}`, id], ['EXPIRE', `ucx:${String(b.email).toLowerCase()}`, CX_SEC]);
+  }
   await pipeline(cmds);
   if (by && b.time !== WHOLE_DAY) await track([`cancel:${by}`]).catch(() => {});
   return b;
+}
+
+/* ---------- Отменённые вами записи (для «выбрать другое время») ---------- */
+const CX_SEC = 30 * 24 * 3600;
+async function getCancelled(id) {
+  const raw = await redis('GET', `cx:${id}`);
+  return raw ? JSON.parse(raw) : null;
+}
+async function forgetCancelled(b) {
+  const cmds = [['DEL', `cx:${b.id}`]];
+  if (b.email) cmds.push(['SREM', `ucx:${String(b.email).toLowerCase()}`, b.id]);
+  await pipeline(cmds);
+}
+async function cancelledFor(email) {
+  const ids = await redis('SMEMBERS', `ucx:${String(email).toLowerCase()}`);
+  if (!ids || !ids.length) return [];
+  const raws = await pipeline(ids.map((id) => ['GET', `cx:${id}`]));
+  return raws.filter(Boolean).map((r) => JSON.parse(r));
+}
+
+/* ---------- Профиль клиента: имя и телефон из последней заявки (для автозаполнения) ---------- */
+async function saveProfile(email, { name, phone }) {
+  if (!email) return;
+  await redis('SET', `profile:${String(email).toLowerCase()}`, JSON.stringify({ name: name || '', phone: phone || '' }), 'EX', 400 * 24 * 3600);
+}
+async function getProfile(email) {
+  const raw = await redis('GET', `profile:${String(email).toLowerCase()}`);
+  return raw ? JSON.parse(raw) : null;
 }
 
 // Занятые слоты дня
@@ -307,5 +342,6 @@ module.exports = {
   tg, BOT, OWNER, webhookSecret, esc, humanDate, timeLabel, bookingText, bookingKeyboard,
   WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending,
   CLOSE_TYPES, closeType, dayInfo, rangeBookings, appUrl, verifyInitData, siteServices,
-  track, getStats, siteHost, manageToken, manageUrl, checkManage
+  track, getStats, siteHost, manageToken, manageUrl, checkManage,
+  getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile
 };

@@ -68,6 +68,15 @@ async function myBookings(email) {
     .filter((b) => !b.past);
 }
 
+// Всё для кабинета: будущие записи (вместе с отменёнными вами — чтобы выбрать новое время) и профиль
+async function myData(email) {
+  const [bookings, cancelled, profile] = await Promise.all([myBookings(email), lib.cancelledFor(email), lib.getProfile(email)]);
+  return {
+    bookings: bookings.concat(cancelled.map(ops.cancelledView)).sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),
+    profile: profile || null,
+  };
+}
+
 // Защита от запросов с чужих сайтов: POST только с нашего адреса
 function sameOrigin(req) {
   const origin = req.headers.origin;
@@ -87,18 +96,19 @@ module.exports = async function handler(req, res) {
       if (req.query && req.query.ids !== undefined) {
         if (!user || !lib.hasDb()) return res.status(200).json({ ok: true, statuses: {} });
         const ids = String(req.query.ids).split(',').filter((id) => /^[a-f0-9]{6,20}$/.test(id)).slice(0, 20);
-        const raws = ids.length ? await lib.pipeline(ids.map((id) => ['GET', `bk:${id}`])) : [];
+        const raws = ids.length ? await lib.pipeline(ids.flatMap((id) => [['GET', `bk:${id}`], ['EXISTS', `cx:${id}`]])) : [];
         const statuses = {};
         ids.forEach((id, i) => {
-          const b = raws[i] ? JSON.parse(raws[i]) : null;
-          statuses[id] = b && String(b.email || '').toLowerCase() === user.email ? (b.status || 'new') : null;
+          const b = raws[i * 2] ? JSON.parse(raws[i * 2]) : null;
+          if (b) statuses[id] = String(b.email || '').toLowerCase() === user.email ? (b.status || 'new') : null;
+          else statuses[id] = Number(raws[i * 2 + 1]) === 1 ? 'cancelled' : null; // отменили вы — или запись исчезла
         });
         return res.status(200).json({ ok: true, statuses });
       }
       const out = { ok: true, enabled, clientId: CLIENT_ID() || null, user: null, bookings: [] };
       if (user) {
         out.user = { email: user.email, name: user.name, picture: user.picture };
-        if (lib.hasDb()) out.bookings = await myBookings(user.email);
+        if (lib.hasDb()) Object.assign(out, await myData(user.email));
       }
       return res.status(200).json(out);
     }
@@ -114,11 +124,21 @@ module.exports = async function handler(req, res) {
         const u = await verifyGoogle(body.credential);
         if (!u) return res.status(401).json({ ok: false, error: 'Не получилось войти. Попробуйте ещё раз.' });
         setCookie(res, makeSession(u), MAX_AGE);
-        return res.status(200).json({ ok: true, user: u, bookings: lib.hasDb() ? await myBookings(u.email) : [] });
+        return res.status(200).json({ ok: true, user: u, ...(lib.hasDb() ? await myData(u.email) : { bookings: [] }) });
       }
       case 'logout':
         setCookie(res, '', 0);
         return res.status(200).json({ ok: true });
+      case 'rebook':
+      case 'dismiss': {
+        if (!user) return res.status(401).json({ ok: false, error: 'Войдите, чтобы управлять записями.' });
+        const cx = await lib.getCancelled(String(body.id || '').slice(0, 20));
+        if (!cx || String(cx.email || '').toLowerCase() !== user.email) return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
+        if (body.action === 'dismiss') { await lib.forgetCancelled(cx); return res.status(200).json({ ok: true, ...(await myData(user.email)) }); }
+        const r = await ops.clientRebook(cx, body.date, body.time, VIA);
+        if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
+        return res.status(200).json({ ok: true, ...(await myData(user.email)) });
+      }
       case 'cancel':
       case 'move': {
         if (!user) return res.status(401).json({ ok: false, error: 'Войдите, чтобы управлять записями.' });
@@ -130,7 +150,7 @@ module.exports = async function handler(req, res) {
         }
         const r = body.action === 'cancel' ? await ops.clientCancel(b, VIA) : await ops.clientMove(b, body.date, body.time, VIA);
         if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
-        return res.status(200).json({ ok: true, bookings: await myBookings(user.email) });
+        return res.status(200).json({ ok: true, ...(await myData(user.email)) });
       }
       default:
         return res.status(400).json({ ok: false, error: 'Неизвестное действие.' });
