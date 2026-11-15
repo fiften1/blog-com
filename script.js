@@ -1675,8 +1675,22 @@
   (() => {
     const btn = $('#qrBtn'), pop = $('#qrPop');
     if (!btn || !pop) return;
-    const set = (open) => { pop.hidden = !open; btn.setAttribute('aria-expanded', open); };
+    let hideT = null, auto = false;
+    const set = (open) => { clearTimeout(hideT); auto = false; pop.classList.remove('is-auto'); pop.hidden = !open; btn.setAttribute('aria-expanded', open); };
     btn.addEventListener('click', (e) => { e.stopPropagation(); set(pop.hidden); });
+
+    // Сам показывается через 5 секунд (раз за визит) и прячется через 6, если на него не навели мышку
+    const scheduleHide = (ms) => { clearTimeout(hideT); hideT = setTimeout(() => { if (auto) set(false); }, ms); };
+    // навели — окошко остаётся, пока не кликнуть мимо или не нажать Esc
+    pop.addEventListener('mouseenter', () => { if (auto) { clearTimeout(hideT); auto = false; pop.classList.remove('is-auto'); } });
+    setTimeout(() => {
+      try { if (sessionStorage.getItem('qrShown')) return; sessionStorage.setItem('qrShown', '1'); } catch (e) { /* приватный режим */ }
+      const visible = btn.offsetParent !== null;               // на телефоне кнопки нет
+      const busy = document.querySelector('.modal:not([hidden])') || document.activeElement?.matches('input, textarea, select');
+      if (!visible || busy || !pop.hidden) return;
+      set(true); auto = true; pop.classList.add('is-auto');
+      scheduleHide(6000);
+    }, 5000);
     document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target)) set(false); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { set(false); btn.focus(); } });
   })();
