@@ -8,20 +8,22 @@ index.html        — разметка, SEO и Open Graph
 style.css         — оформление, палитра в CSS-переменных (:root)
 script.js         — логика и анимации
 content/*.json    — ВЕСЬ контент: посты, файлы, видео, ссылки, настройки сайта
-admin/            — админка (Sveltia CMS) и её настройки config.yml
+admin/            — админка (admin.js, admin.css); запасная Sveltia — admin/cms/
 files/            — файлы для скачивания
 images/           — аватар, favicon, обложки
 ```
 
 ## Админка
-1. Откройте `/admin/` и нажмите «Войти с помощью токена доступа».
-2. Создайте токен GitHub: https://github.com/settings/personal-access-tokens/new
-   - Repository access → Only select repositories → `blog-com`
-   - Permissions → Repository permissions → **Contents: Read and write**
-3. Вставьте токен в админку. Он хранится только в этом браузере.
+Откройте `/admin/` — своя админка в стиле сайта: меню слева (Обзор, Посты, Файлы,
+Видео, Ссылки, Настройки сайта), редактор постов с живым предпросмотром, загрузка
+картинок и файлов перетаскиванием, ⌘S / Ctrl+S — сохранить.
 
-Каждое «Сохранить» в админке — это коммит в репозиторий. Vercel и GitHub Pages
-обновляют сайт сами примерно за минуту.
+Вход — токеном GitHub (хранится только в этом браузере):
+https://github.com/settings/personal-access-tokens/new → Only select repositories →
+`blog-com` → Permissions → **Contents: Read and write**.
+
+Каждое сохранение — коммит в репозиторий; Vercel и GitHub Pages обновляют сайт
+сами примерно за минуту. Запасная старая админка (Sveltia CMS): `/admin/cms/`.
 
 Текст постов и «Обо мне» пишется в Markdown: `## подзаголовок`, `- список`,
 `> цитата`, `**жирный**`, `*курсив*`, `[ссылка](https://…)`.
