@@ -353,6 +353,29 @@ function bookingKeyboard(b, status = b.status) {
   return { inline_keyboard: rows };
 }
 
+/* ---------- Подтверждение заявки — ровно один раз ----------
+   Возвращает { b, already }: already = true, если заявку уже подтвердили
+   (в чате или в приложении) — тогда клиенту повторно ничего не отправляем. */
+async function confirmBooking(id) {
+  const b = await getBooking(id);
+  if (!b) return { b: null };
+  if (b.status === 'confirmed') return { b, already: true };
+  const first = await redis('SET', `cf:${id}`, '1', 'NX', 'EX', 7 * 24 * 3600); // защита от двойного нажатия
+  if (!first) return { b: { ...b, status: 'confirmed' }, already: true };
+  b.status = 'confirmed';
+  await saveBooking(b);
+  return { b, already: false };
+}
+
+// Обновить исходное сообщение о заявке в чате (кнопки и статус), где бы её ни подтвердили/отменили
+async function syncOwnerMessage(b, status = b.status, skipId) {
+  if (!b || !b.tgMsg || b.tgMsg === skipId) return;
+  await tg('editMessageText', {
+    chat_id: OWNER(), message_id: b.tgMsg, parse_mode: 'HTML', disable_web_page_preview: true,
+    text: bookingText(b, status), reply_markup: status === 'cancelled' ? { inline_keyboard: [] } : bookingKeyboard(b, status)
+  }).catch(() => {}); // сообщение могли удалить или текст не изменился — не страшно
+}
+
 /* ---------- «Сейчас» как число для сравнения со временем записей (по вашему поясу) ---------- */
 const nowSlotTs = () => {
   const m = nowMinutes();
@@ -462,5 +485,5 @@ module.exports = {
   getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts,
   nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
   favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
-  clientTg, hasClientBot, clientWebhookSecret
+  clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage
 };

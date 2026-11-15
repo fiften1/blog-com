@@ -86,17 +86,19 @@ module.exports = async function handler(req, res) {
       case 'cancel': {
         const b = await lib.cancel(clean(body.id, 20), 'owner');
         if (!b) return res.status(404).json({ ok: false, error: 'Запись уже отменена.' });
+        await lib.syncOwnerMessage(b, 'cancelled');
         if (b.time !== lib.WHOLE_DAY) await mail.notifyClient('cancelledByOwner', b);
         return res.status(200).json({ ok: true, booking: view(b) });
       }
 
       case 'confirm': {
-        const b = await lib.getBooking(clean(body.id, 20));
+        const { b, already } = await lib.confirmBooking(clean(body.id, 20));
         if (!b) return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
-        b.status = 'confirmed';
-        await lib.saveBooking(b);
-        await mail.notifyClient('confirmed', b);
-        return res.status(200).json({ ok: true, booking: view(b) });
+        if (!already) {
+          await mail.notifyClient('confirmed', b);
+          await lib.syncOwnerMessage(b); // в чате убираем кнопку «Подтвердить»
+        }
+        return res.status(200).json({ ok: true, booking: view(b), already: !!already });
       }
 
       case 'stats': {

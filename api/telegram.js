@@ -187,6 +187,7 @@ async function onButton(q) {
     case 'del': {
       const b = await lib.cancel(arg, 'owner');
       if (b && b.time !== lib.WHOLE_DAY) await mail.notifyClient('cancelledByOwner', b);
+      if (b) await lib.syncOwnerMessage(b, 'cancelled', action === 'cancel' ? messageId : undefined);
       if (!b) {
         await answer('Запись уже отменена или устарела');
         if (action === 'cancel') await lib.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
@@ -204,12 +205,17 @@ async function onButton(q) {
 
     // --- подтверждение ---
     case 'ok': {
-      const b = await lib.getBooking(arg);
-      if (!b) return answer('Запись не найдена');
-      b.status = 'confirmed';
-      await lib.saveBooking(b);
-      const mailed = await mail.notifyClient('confirmed', b);
-      await answer(mailed ? 'Подтверждено, клиенту ушло письмо' : 'Подтверждено');
+      const { b, already } = await lib.confirmBooking(arg);
+      if (!b) {
+        await answer('Запись не найдена — её отменили или перенесли');
+        return lib.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
+      }
+      if (already) await answer('Уже подтверждено — клиенту повторно ничего не отправлено');
+      else {
+        const mailed = await mail.notifyClient('confirmed', b);
+        await answer(mailed ? 'Подтверждено, клиенту ушло письмо' : 'Подтверждено');
+        await lib.syncOwnerMessage(b, b.status, messageId); // исходное сообщение, если нажали в другом
+      }
       return lib.tg('editMessageText', {
         chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
         text: lib.bookingText(b), reply_markup: lib.bookingKeyboard(b)
