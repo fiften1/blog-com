@@ -60,23 +60,30 @@
   --violet: #7c3aed;
   --cyan: #0e7490;
   --pink: #be185d;
-  --bg: #f7f7f5;
-  --bg-soft: #efefec;
-  --surface: rgba(0, 0, 0, 0.015);
-  --surface-hover: rgba(0, 0, 0, 0.035);
+  --bg: #f4f1fb;
+  --bg-soft: #ece8f7;
+  /* Фон-градиент светлой темы: лаванда → голубой → персик */
+  --bg-gradient:
+    radial-gradient(120% 80% at 0% 0%, #e9ddff 0%, transparent 55%),
+    radial-gradient(90% 70% at 100% 30%, #d6f1fb 0%, transparent 60%),
+    radial-gradient(100% 80% at 30% 100%, #ffe1ec 0%, transparent 60%),
+    linear-gradient(160deg, #f5f0ff 0%, #eef6fd 50%, #fdf3f6 100%);
+  /* «Стекло»: полупрозрачный белый, градиент просвечивает */
+  --surface: rgba(255, 255, 255, 0.5);
+  --surface-hover: rgba(255, 255, 255, 0.72);
   --surface-strong: #ffffff;
-  --line: rgba(0, 0, 0, 0.09);
-  --line-strong: rgba(0, 0, 0, 0.22);
+  --line: rgba(76, 58, 140, 0.12);
+  --line-strong: rgba(76, 58, 140, 0.26);
   --text: #2a2a33;
   --text-muted: #6b6b78;
   --text-faint: #9a9aa6;
   --heading: #0f0f14;
-  --header-bg: rgba(247, 247, 245, 0.8);
+  --header-bg: rgba(248, 245, 255, 0.72);
   --btn-bg: #0f0f14;
   --btn-text: #f7f7f5;
   --glow: 0 0 0 1px rgba(124, 58, 237, 0.3), 0 0 20px rgba(124, 58, 237, 0.1);
-  --blob-opacity: 0.1;
-  --particle: 60, 60, 80;
+  --blob-opacity: 0.22;
+  --particle: 70, 60, 110;
   --particle-line: 124, 58, 237;
 }
 
@@ -134,7 +141,21 @@ h1, h2, h3 {
 }
 
 /* ---------- 3. ФОН, ПРЕЛОАДЕР, КУРСОР ---------- */
-.blobs { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.blobs { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--bg-gradient, none); transition: background .4s; }
+/* в светлой теме пятна ярче и есть третье, розовое */
+:root[data-theme="light"] .blob--pink { display: block; opacity: calc(var(--blob-opacity) * .7); }
+:root[data-theme="light"] .blob { mix-blend-mode: multiply; }
+/* карточки и поля — «стеклянные», с лёгкой тенью */
+:root[data-theme="light"] .card,
+:root[data-theme="light"] .glass,
+:root[data-theme="light"] .field input,
+:root[data-theme="light"] .field select,
+:root[data-theme="light"] .field textarea,
+:root[data-theme="light"] .phone__code {
+  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+:root[data-theme="light"] .card { box-shadow: 0 10px 30px rgba(76, 58, 140, 0.08); }
+:root[data-theme="light"] .card:hover { box-shadow: 0 14px 36px rgba(76, 58, 140, 0.14); }
 .blobs__layer { position: absolute; inset: 0; will-change: transform; }
 .blob {
   position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%;
