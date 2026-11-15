@@ -338,6 +338,26 @@
     });
   }
 
+  // Блог: сначала показываем POSTS_STEP постов, остальные — по кнопке «Показать ещё»
+  const POSTS_STEP = 6;
+  let postsShown = POSTS_STEP;
+  function paintPostsMore(active) {
+    const cards = $$('#postsGrid .card');
+    cards.forEach((card, i) => card.classList.toggle('is-collapsed', !active && i >= postsShown));
+    const left = active ? 0 : Math.max(0, cards.length - postsShown);
+    const box = $('#postsMore');
+    if (!box) return;
+    box.hidden = !left;
+    $('#postsMoreBtn').textContent = `Показать ещё ${Math.min(left, POSTS_STEP)} из ${left}`;
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#postsMoreBtn')) return;
+    const first = $$('#postsGrid .card')[postsShown];
+    postsShown += POSTS_STEP;
+    paintPostsMore(false);
+    if (first) first.querySelector('.post-card__btn')?.focus({ preventScroll: true });
+  });
+
   function applyFilters() {
     const words = norm(state.query).trim().split(/\s+/).filter(Boolean);
     let total = 0;
@@ -359,6 +379,7 @@
     });
 
     const active = words.length || state.tag;
+    paintPostsMore(!!active); // при поиске или теге показываем все совпадения
     $('#searchStatus').textContent = active
       ? (total ? `Найдено ${total} — ${summary.join(', ')}` : 'Ничего не найдено. Попробуйте другой запрос или тег.')
       : '';
