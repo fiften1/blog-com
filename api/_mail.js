@@ -160,7 +160,7 @@ async function telegramToClient(kind, b) {
     if (!link) return false;
     const t = TEMPLATES[kind](b);
     const when = `${lib.humanDate(b.date)}, ${b.time}`;
-    await lib.tg('sendMessage', {
+    await lib.clientTg('sendMessage', {
       chat_id: link.chatId, parse_mode: 'HTML', disable_web_page_preview: true,
       text: `<b>${lib.esc(t.title)}</b>\n${t.intro}\n\n${b.service ? `${lib.esc(b.service)}\n` : ''}🗓 <b>${lib.esc(when)}</b>`,
       reply_markup: t.button ? { inline_keyboard: [[{ text: t.button.text, url: t.button.url }]] } : undefined

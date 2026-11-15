@@ -40,7 +40,16 @@ async function setup(req, res) {
   await lib.tg('setMyCommands', { commands: COMMANDS });
   // Кнопка «Записи» слева от поля ввода открывает Mini App
   await lib.tg('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Записи', web_app: { url: `https://${host}/tg/` } } });
-  return res.status(200).json({ ok: true, webhook: url, app: `https://${host}/tg/`, db: lib.hasDb() });
+  let client = null;
+  if (lib.hasClientBot()) {
+    await lib.clientTg('setWebhook', { url, secret_token: lib.clientWebhookSecret(), allowed_updates: ['message'], drop_pending_updates: true });
+    await lib.clientTg('setMyCommands', { commands: [] });
+    await lib.clientTg('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Кабинет', web_app: { url: `https://${host}/account/` } } });
+    await lib.clientTg('setMyDescription', { description: 'Подтверждения записей и напоминания — накануне и за час до визита. Подключается в личном кабинете на сайте.' }).catch(() => {});
+    await lib.clientTg('setMyShortDescription', { short_description: 'Напоминания о ваших записях' }).catch(() => {});
+    client = await lib.botUsername();
+  }
+  return res.status(200).json({ ok: true, webhook: url, app: `https://${host}/tg/`, clientBot: client, db: lib.hasDb() });
 }
 
 /* ---------- Ручная запись: экраны ---------- */
@@ -245,16 +254,16 @@ async function onClientMessage(m) {
   if (linkMatch && lib.hasDb()) {
     const email = await lib.linkTelegram(linkMatch[1], chatId, [m.from.first_name, m.from.last_name].filter(Boolean).join(' '));
     if (email) {
-      return lib.tg('sendMessage', {
+      return lib.clientTg('sendMessage', {
         chat_id: chatId, parse_mode: 'HTML',
         text: `✅ <b>Telegram подключён</b>\n\nСюда будут приходить подтверждения записей, переносы и напоминания — накануне и за час до визита.\n\nУправлять записями — в личном кабинете.`,
         reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] }
       });
     }
-    return lib.tg('sendMessage', { chat_id: chatId, text: 'Ссылка устарела. Откройте личный кабинет на сайте и нажмите «Подключить Telegram» ещё раз.', reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] } });
+    return lib.clientTg('sendMessage', { chat_id: chatId, text: 'Ссылка устарела. Откройте личный кабинет на сайте и нажмите «Подключить Telegram» ещё раз.', reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] } });
   }
   const linked = lib.hasDb() ? await lib.redis('GET', `tgchat:${chatId}`) : null;
-  return lib.tg('sendMessage', {
+  return lib.clientTg('sendMessage', {
     chat_id: chatId,
     text: linked
       ? 'Это бот уведомлений о ваших записях. Записаться, перенести или отменить можно в личном кабинете.'
@@ -265,6 +274,7 @@ async function onClientMessage(m) {
 
 async function onMessage(m) {
   if (!isOwner(m.from && m.from.id)) return onClientMessage(m); // клиенты
+  if (/^\/start\s+l_/.test(String(m.text || ''))) return onClientMessage(m); // вы подключаете Telegram в своём кабинете
   const chatId = m.chat.id;
   const text = String(m.text || '').trim();
   const needDb = () => lib.tg('sendMessage', { chat_id: chatId, text: 'База не подключена — эта функция недоступна.' });
@@ -295,7 +305,15 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).end();
 
     // Принимаем только запросы от Telegram (секрет задаётся при setWebhook)
-    if (req.headers['x-telegram-bot-api-secret-token'] !== lib.webhookSecret()) return res.status(401).end();
+    const hook = req.headers['x-telegram-bot-api-secret-token'];
+    if (lib.hasClientBot() && hook === lib.clientWebhookSecret()) {
+      // клиентский бот: все сообщения — от клиентов (и от вас, когда вы проверяете как клиент)
+      let u = req.body || {};
+      if (typeof u === 'string') { try { u = JSON.parse(u); } catch (e) { u = {}; } }
+      if (u.message) await onClientMessage(u.message).catch((e) => console.error('client bot:', e.message));
+      return res.status(200).json({ ok: true });
+    }
+    if (hook !== lib.webhookSecret()) return res.status(401).end();
 
     let update = req.body || {};
     if (typeof update === 'string') { try { update = JSON.parse(update); } catch (e) { update = {}; } }

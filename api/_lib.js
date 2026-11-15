@@ -371,14 +371,27 @@ async function bookingsOf(email, from = nowSlotTs() - 75 * 86400e3, to = nowSlot
 
 /* ---------- Telegram клиента: привязка через бота заявок ---------- */
 let botNameCache = null;
+// Клиентский бот (уведомления клиентам) — отдельный от вашего бота заявок.
+// Если TELEGRAM_CLIENT_BOT_TOKEN не задан, клиентам пишет бот заявок (как раньше).
+const CLIENT_BOT = () => process.env.TELEGRAM_CLIENT_BOT_TOKEN || BOT();
+const hasClientBot = () => !!process.env.TELEGRAM_CLIENT_BOT_TOKEN;
+async function clientTg(method, payload) {
+  const r = await fetch(`https://api.telegram.org/bot${CLIENT_BOT()}/${method}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || !out.ok) throw new Error(`client ${method}: ${out.description || r.status}`);
+  return out.result;
+}
+const clientWebhookSecret = () => crypto.createHash('sha256').update(`clienthook:${CLIENT_BOT()}`).digest('hex').slice(0, 48);
 async function botUsername() {
-  if (botNameCache) return botNameCache;
-  const cached = await redis('GET', 'bot:username').catch(() => null);
-  if (cached) return (botNameCache = cached);
-  const me = await tg('getMe', {});
-  botNameCache = me.username;
-  await redis('SET', 'bot:username', me.username, 'EX', 7 * 86400).catch(() => {});
-  return botNameCache;
+  const key = `bot:username:${crypto.createHash('sha256').update(String(CLIENT_BOT())).digest('hex').slice(0, 10)}`;
+  if (botNameCache && botNameCache.key === key) return botNameCache.name;
+  const cached = await redis('GET', key).catch(() => null);
+  const name = cached || (await clientTg('getMe', {})).username;
+  if (!cached) await redis('SET', key, name, 'EX', 7 * 86400).catch(() => {});
+  botNameCache = { key, name };
+  return name;
 }
 // Одноразовый код для ссылки t.me/<бот>?start=l_<код> (живёт 15 минут)
 async function telegramLinkUrl(email) {
@@ -448,5 +461,6 @@ module.exports = {
   track, getStats, siteHost, manageToken, manageUrl, checkManage,
   getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts,
   nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
-  favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs
+  favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
+  clientTg, hasClientBot, clientWebhookSecret
 };
