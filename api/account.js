@@ -115,7 +115,9 @@ async function myCancelled(email) {
 async function myData(email) {
   const [bookings, cancelled, profile] = await Promise.all([myBookings(email), myCancelled(email), lib.getProfile(email)]);
   return {
-    bookings: bookings.concat(cancelled).sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),
+    // сверху действующие записи (ближайшие первыми), под ними отменённые (последние отмены первыми)
+    bookings: bookings.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
+      .concat(cancelled.sort((a, b) => String(b.cancelledAt).localeCompare(String(a.cancelledAt)))),
     profile: profile || null,
     favorites: (await lib.redis('SMEMBERS', lib.favKey(email))) || []
   };
