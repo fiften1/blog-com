@@ -805,15 +805,16 @@
       const nowMin = now.getHours() * 60 + now.getMinutes() + 30; // минимум за 30 минут
       const prev = timeSelect.value;
       let free = 0;
+      const dayClosed = taken.includes('*'); // день закрыт целиком (через бота)
       timeSelect.innerHTML = '<option value="">Выберите время</option>' + slots.map((t) => {
         const [h, m] = t.split(':').map(Number);
         const past = isToday && h * 60 + (m || 0) < nowMin;
-        const busy = taken.includes(t);
+        const busy = dayClosed || taken.includes(t);
         if (!past && !busy) free++;
         const note = past ? ' — прошло' : busy ? ' — занято' : '';
         return `<option value="${esc(t)}" ${past || busy ? 'disabled' : ''}>${esc(t)}${note}</option>`;
       }).join('');
-      if (dateInput.value && !free) timeSelect.options[0].textContent = 'На эту дату всё занято';
+      if (dateInput.value && !free) timeSelect.options[0].textContent = dayClosed ? 'В этот день записи нет' : 'На эту дату всё занято';
       if (prev && !timeSelect.querySelector(`option[value="${CSS.escape(prev)}"]:not([disabled])`)) timeSelect.value = '';
       else timeSelect.value = prev;
     };

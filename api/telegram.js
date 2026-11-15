@@ -6,14 +6,23 @@
      ✅ Подтвердить     — помечает запись подтверждённой
      ❌ Отменить запись — удаляет запись из базы, время снова свободно на сайте
    Команды:
+     /add  — записать вручную: день → время (или весь день) → имя/заметка
      /list — ближайшие записи с кнопками отмены
 
-   Первичная настройка (один раз, после подключения базы):
+   Первичная настройка (и после смены токена/домена):
      откройте https://<сайт>/api/telegram?setup=1
    ===================================================================== */
 const lib = require('./_lib');
 
 const isOwner = (id) => String(id) === lib.OWNER();
+const COMMANDS = [
+  { command: 'add', description: 'Записать вручную / закрыть время' },
+  { command: 'list', description: 'Ближайшие записи' }
+];
+const HELP = 'Сюда приходят заявки с сайта.\n\n'
+  + '/add — записать вручную (если клиент записался лично или через другой канал) или закрыть весь день\n'
+  + '/list — ближайшие записи\n\n'
+  + 'Под каждой заявкой есть кнопки «Подтвердить» и «Отменить запись».';
 
 async function setup(req, res) {
   // Адрес берём из системной переменной Vercel (основной домен проекта), а не из запроса
@@ -25,13 +34,99 @@ async function setup(req, res) {
     allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: true
   });
-  await lib.tg('setMyCommands', { commands: [{ command: 'list', description: 'Ближайшие записи' }] });
+  await lib.tg('setMyCommands', { commands: COMMANDS });
   return res.status(200).json({ ok: true, webhook: url, db: lib.hasDb() });
 }
 
-// Нажатие на кнопку под заявкой
+/* ---------- Ручная запись: экраны ---------- */
+const DAYS_PER_PAGE = 14;
+
+// Экран 1: выбор дня (по 14 дней, можно листать)
+async function screenDays(chatId, messageId, page = 0) {
+  const start = lib.addDays(lib.todayISO(), page * DAYS_PER_PAGE);
+  const days = Array.from({ length: DAYS_PER_PAGE }, (_, i) => lib.addDays(start, i));
+  const rows = [];
+  for (let i = 0; i < days.length; i += 2) {
+    rows.push(days.slice(i, i + 2).map((d) => ({ text: lib.humanDate(d, true), callback_data: `ad:${d}` })));
+  }
+  const nav = [];
+  if (page > 0) nav.push({ text: '← Раньше', callback_data: `ap:${page - 1}` });
+  if (page < 3) nav.push({ text: 'Позже →', callback_data: `ap:${page + 1}` });
+  rows.push(nav);
+  rows.push([{ text: 'Отмена', callback_data: 'ax' }]);
+  return show(chatId, messageId, '✍️ <b>Записать вручную</b>\n\nВыберите день:', rows);
+}
+
+// Экран 2: выбор времени на день (занятое помечено)
+async function screenTimes(chatId, messageId, date) {
+  const [slots, taken] = await Promise.all([lib.siteSlots(), lib.takenSlots(date)]);
+  const dayClosed = taken.includes(lib.WHOLE_DAY);
+  const isToday = date === lib.todayISO();
+  const now = lib.nowMinutes();
+  const buttons = slots.map((t) => {
+    const [h, m] = t.split(':').map(Number);
+    const busy = dayClosed || taken.includes(t);
+    const past = isToday && h * 60 + m < now;
+    if (busy) return { text: `🔒 ${t}`, callback_data: `ab:${date}:${t}` };
+    if (past) return { text: `· ${t}`, callback_data: `ab:${date}:${t}` };
+    return { text: t, callback_data: `at:${date}:${t}` };
+  });
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 4) rows.push(buttons.slice(i, i + 4));
+  if (!dayClosed) rows.push([{ text: '🚫 Закрыть весь день', callback_data: `at:${date}:*` }]);
+  rows.push([{ text: '← К дням', callback_data: 'ap:0' }, { text: 'Отмена', callback_data: 'ax' }]);
+  const note = dayClosed
+    ? '\n\n🚫 Этот день уже закрыт. Открыть его можно через /list.'
+    : '\n\n🔒 — занято, · — уже прошло.';
+  return show(chatId, messageId, `✍️ <b>${lib.esc(lib.humanDate(date))}</b>\n\nВыберите время:${note}`, rows);
+}
+
+// Экран 3: ждём имя/заметку текстом
+async function screenAskName(chatId, messageId, date, time) {
+  await lib.setPending(chatId, { date, time, messageId });
+  const what = time === lib.WHOLE_DAY ? 'весь день' : time;
+  return show(chatId, messageId,
+    `✍️ <b>${lib.esc(lib.humanDate(date))}, ${lib.esc(what)}</b>\n\n`
+    + (time === lib.WHOLE_DAY
+      ? 'Напишите причину одним сообщением (например, «выходной»), или нажмите кнопку ниже.'
+      : 'Напишите одним сообщением, кто записался: имя, телефон, услуга — как удобно. Или нажмите кнопку ниже.'),
+    [[{ text: time === lib.WHOLE_DAY ? 'Без причины' : 'Без имени', callback_data: 'an' }], [{ text: 'Отмена', callback_data: 'ax' }]]);
+}
+
+// Сохранение ручной записи
+async function saveManual(chatId, note) {
+  const p = await lib.getPending(chatId);
+  if (!p) return false;
+  await lib.clearPending(chatId);
+  const b = await lib.reserve({
+    date: p.date, time: p.time, source: 'manual',
+    service: '', name: String(note || '').trim().slice(0, 300), phone: '', email: '', comment: ''
+  });
+  if (!b) {
+    await show(chatId, p.messageId, '⚠️ Это время уже занято (возможно, только что записались с сайта). Выберите другое: /add', []);
+    return true;
+  }
+  await lib.tg('editMessageText', {
+    chat_id: chatId, message_id: p.messageId, parse_mode: 'HTML',
+    text: lib.bookingText(b) + `\n\n${b.time === lib.WHOLE_DAY ? 'На сайте этот день теперь недоступен.' : 'На сайте это время теперь недоступно.'}`,
+    reply_markup: lib.bookingKeyboard(b)
+  }).catch(() => lib.tg('sendMessage', { chat_id: chatId, parse_mode: 'HTML', text: lib.bookingText(b), reply_markup: lib.bookingKeyboard(b) }));
+  return true;
+}
+
+// Показать экран: отредактировать сообщение или отправить новое
+function show(chatId, messageId, text, rows) {
+  const payload = { chat_id: chatId, text, parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } };
+  if (messageId) return lib.tg('editMessageText', { ...payload, message_id: messageId }).catch(() => {});
+  return lib.tg('sendMessage', payload);
+}
+
+/* ---------- Нажатия на кнопки ---------- */
 async function onButton(q) {
-  const [action, id] = String(q.data || '').split(':');
+  const data = String(q.data || '');
+  const sep = data.indexOf(':');
+  const action = sep === -1 ? data : data.slice(0, sep);
+  const arg = sep === -1 ? '' : data.slice(sep + 1);
   const chatId = q.message && q.message.chat.id;
   const messageId = q.message && q.message.message_id;
   const answer = (text) => lib.tg('answerCallbackQuery', { callback_query_id: q.id, text }).catch(() => {});
@@ -39,70 +134,103 @@ async function onButton(q) {
   if (!isOwner(q.from.id)) return answer('Нет доступа');
   if (!lib.hasDb()) return answer('База не подключена');
 
-  if (action === 'cancel' || action === 'del') {
-    const b = await lib.cancel(id);
-    if (!b) {
-      await answer('Запись уже отменена или устарела');
-      if (action === 'cancel') await lib.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
+  switch (action) {
+    // --- ручная запись ---
+    case 'ap': await answer(); return screenDays(chatId, messageId, Number(arg) || 0);
+    case 'ad': await answer(); return screenTimes(chatId, messageId, arg);
+    case 'at': {
+      const [date, ...rest] = arg.split(':');
+      const time = rest.join(':');
+      await answer();
+      return screenAskName(chatId, messageId, date, time);
+    }
+    case 'ab': return answer('Это время недоступно');
+    case 'an': {
+      await answer();
+      if (!(await saveManual(chatId, ''))) await show(chatId, messageId, 'Черновик устарел. Начните заново: /add', []);
       return;
     }
-    await answer(`Отменено: ${lib.humanDate(b.date, true)}, ${b.time}`);
-    if (action === 'cancel') {
-      // Кнопка под самой заявкой — переписываем её текст
-      await lib.tg('editMessageText', {
-        chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
-        text: lib.bookingText(b, 'cancelled'), reply_markup: { inline_keyboard: [] }
-      }).catch(() => {});
-    } else {
-      // Кнопка из /list — обновляем список
-      await sendList(chatId, messageId);
+    case 'ax':
+      await lib.clearPending(chatId);
+      await answer('Отменено');
+      return show(chatId, messageId, 'Ручная запись отменена.', []);
+
+    // --- отмена записи ---
+    case 'cancel':
+    case 'del': {
+      const b = await lib.cancel(arg);
+      if (!b) {
+        await answer('Запись уже отменена или устарела');
+        if (action === 'cancel') await lib.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
+        return;
+      }
+      await answer(`Отменено: ${lib.humanDate(b.date, true)}, ${lib.timeLabel(b.time)}`);
+      if (action === 'cancel') {
+        return lib.tg('editMessageText', {
+          chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
+          text: lib.bookingText(b, 'cancelled'), reply_markup: { inline_keyboard: [] }
+        }).catch(() => {});
+      }
+      return sendList(chatId, messageId);
     }
-    return;
-  }
 
-  if (action === 'ok') {
-    const b = await lib.getBooking(id);
-    if (!b) return answer('Запись не найдена');
-    b.status = 'confirmed';
-    await lib.saveBooking(b);
-    await answer('Подтверждено');
-    await lib.tg('editMessageText', {
-      chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
-      text: lib.bookingText(b), reply_markup: lib.bookingKeyboard(b)
-    }).catch(() => {});
-    return;
+    // --- подтверждение ---
+    case 'ok': {
+      const b = await lib.getBooking(arg);
+      if (!b) return answer('Запись не найдена');
+      b.status = 'confirmed';
+      await lib.saveBooking(b);
+      await answer('Подтверждено');
+      return lib.tg('editMessageText', {
+        chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
+        text: lib.bookingText(b), reply_markup: lib.bookingKeyboard(b)
+      }).catch(() => {});
+    }
+    default:
+      return answer();
   }
-
-  return answer();
 }
 
-// Список ближайших записей; editId — обновить уже отправленный список
+/* ---------- Список ближайших записей ---------- */
 async function sendList(chatId, editId) {
   const list = await lib.upcoming(15);
+  const icon = (b) => (b.time === lib.WHOLE_DAY ? '🚫' : b.source === 'manual' ? '✍️' : b.status === 'confirmed' ? '✅' : '🕓');
+  const who = (b) => [b.service, b.name, b.phone].filter(Boolean).map(lib.esc).join(' · ') || (b.time === lib.WHOLE_DAY ? 'день закрыт' : 'без имени');
   const text = list.length
     ? '<b>Ближайшие записи</b>\n\n' + list.map((b) =>
-      `${b.status === 'confirmed' ? '✅' : '🕓'} <b>${lib.esc(lib.humanDate(b.date, true))}, ${lib.esc(b.time)}</b> — ${lib.esc(b.service)}\n${lib.esc(b.name)} · ${lib.esc(b.phone)}`).join('\n\n') +
-      '\n\nНажмите кнопку, чтобы отменить запись и освободить время.'
-    : 'Ближайших записей нет.';
+      `${icon(b)} <b>${lib.esc(lib.humanDate(b.date, true))}, ${lib.esc(lib.timeLabel(b.time))}</b>\n${who(b)}`).join('\n\n') +
+      '\n\n✍️ — записано вручную, 🚫 — день закрыт.\nНажмите кнопку, чтобы отменить запись и освободить время. Добавить: /add'
+    : 'Ближайших записей нет. Добавить вручную: /add';
   const reply_markup = {
-    inline_keyboard: list.map((b) => [{ text: `❌ ${lib.humanDate(b.date, true)}, ${b.time} · ${b.name}`.slice(0, 60), callback_data: `del:${b.id}` }])
+    inline_keyboard: list.map((b) => [{
+      text: `❌ ${lib.humanDate(b.date, true)}, ${lib.timeLabel(b.time)}${b.name ? ' · ' + b.name : ''}`.slice(0, 60),
+      callback_data: `del:${b.id}`
+    }])
   };
   const payload = { chat_id: chatId, text, parse_mode: 'HTML', reply_markup };
   if (editId) return lib.tg('editMessageText', { ...payload, message_id: editId }).catch(() => {});
   return lib.tg('sendMessage', payload);
 }
 
+/* ---------- Текстовые сообщения ---------- */
 async function onMessage(m) {
   if (!isOwner(m.from && m.from.id)) return; // чужим не отвечаем
+  const chatId = m.chat.id;
   const text = String(m.text || '').trim();
-  if (/^\/list/.test(text)) {
-    if (!lib.hasDb()) return lib.tg('sendMessage', { chat_id: m.chat.id, text: 'База не подключена — список записей недоступен.' });
-    return sendList(m.chat.id);
+  const needDb = () => lib.tg('sendMessage', { chat_id: chatId, text: 'База не подключена — эта функция недоступна.' });
+
+  if (/^\/add\b/.test(text)) {
+    if (!lib.hasDb()) return needDb();
+    await lib.clearPending(chatId);
+    return screenDays(chatId, null, 0);
   }
-  return lib.tg('sendMessage', {
-    chat_id: m.chat.id,
-    text: 'Сюда приходят заявки с сайта.\n\n/list — ближайшие записи\nПод каждой заявкой есть кнопки «Подтвердить» и «Отменить запись».'
-  });
+  if (/^\/list\b/.test(text)) {
+    if (!lib.hasDb()) return needDb();
+    return sendList(chatId);
+  }
+  // Обычный текст: если ждём имя для ручной записи — сохраняем
+  if (text && !text.startsWith('/') && lib.hasDb() && (await saveManual(chatId, text))) return;
+  return lib.tg('sendMessage', { chat_id: chatId, text: HELP });
 }
 
 module.exports = async function handler(req, res) {

@@ -44,13 +44,15 @@ async function pipeline(commands) {
 }
 
 const KEEP_SEC = 75 * 24 * 3600; // записи хранятся ~2,5 месяца, потом удаляются сами
-const slotTs = (date, time) => Date.parse(`${date}T${time.padStart(5, '0')}:00Z`);
+const WHOLE_DAY = '*';             // «время» записи, которая закрывает весь день
+const slotTs = (date, time) => Date.parse(`${date}T${time === WHOLE_DAY ? '00:00' : time.padStart(5, '0')}:00Z`);
 
 /* ---------- Записи ---------- */
-// Занять слот. Возвращает запись или null, если время уже занято.
+// Занять слот. Возвращает запись или null, если время уже занято (или весь день закрыт).
 // HSETNX атомарный: даже если двое нажмут «Отправить» одновременно, слот получит только один.
 async function reserve(data) {
   const id = crypto.randomBytes(5).toString('hex');
+  if (data.time !== WHOLE_DAY && (await redis('HEXISTS', `day:${data.date}`, WHOLE_DAY)) === 1) return null;
   const ok = await redis('HSETNX', `day:${data.date}`, data.time, id);
   if (ok !== 1) return null;
   const booking = { id, ...data, status: 'new', createdAt: new Date().toISOString() };
@@ -139,33 +141,75 @@ const STATUS = {
   cancelled: '❌ <b>Отменено</b> — время снова свободно на сайте'
 };
 
+const timeLabel = (t) => (t === WHOLE_DAY ? 'весь день' : t);
+
 // Текст сообщения о записи
 function bookingText(b, status = b.status) {
-  const head = status === 'cancelled' ? '<s>Заявка с сайта</s>' : '🆕 <b>Новая заявка с сайта</b>';
+  const manual = b.source === 'manual';
+  const title = b.time === WHOLE_DAY ? 'День закрыт' : manual ? 'Записано вручную' : 'Новая заявка с сайта';
+  const icon = b.time === WHOLE_DAY ? '🚫' : manual ? '✍️' : '🆕';
+  const head = status === 'cancelled' ? `<s>${title}</s>` : `${icon} <b>${title}</b>`;
   return [
     head,
     '',
-    `<b>Услуга:</b> ${esc(b.service)}`,
-    `<b>Когда:</b> ${esc(humanDate(b.date))}, ${esc(b.time)}`,
+    b.service ? `<b>Услуга:</b> ${esc(b.service)}` : '',
+    `<b>Когда:</b> ${esc(humanDate(b.date))}, ${esc(timeLabel(b.time))}`,
     '',
-    `<b>Имя:</b> ${esc(b.name)}`,
-    `<b>Телефон:</b> ${esc(b.phone)}`,
-    `<b>Почта:</b> ${esc(b.email)}`,
+    b.name ? `<b>${manual ? 'Кто / заметка' : 'Имя'}:</b> ${esc(b.name)}` : '',
+    b.phone ? `<b>Телефон:</b> ${esc(b.phone)}` : '',
+    b.email ? `<b>Почта:</b> ${esc(b.email)}` : '',
     b.comment ? `\n<b>Комментарий:</b>\n${esc(b.comment)}` : '',
     STATUS[status] ? `\n${STATUS[status]}` : ''
   ].join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/* ---------- Даты и слоты для бота ---------- */
+// «Сегодня» по вашему часовому поясу (можно поменять переменной BOOKING_TZ в Vercel)
+const TZ = () => process.env.BOOKING_TZ || 'Europe/Warsaw';
+function todayISO() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ(), year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function nowMinutes() {
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: TZ(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  return Number(p.find((x) => x.type === 'hour').value) * 60 + Number(p.find((x) => x.type === 'minute').value);
+}
+function addDays(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Время для записи берём из content/site.json самого сайта (его меняют в админке)
+const DEFAULT_SLOTS = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
+async function siteSlots() {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (!host) return DEFAULT_SLOTS;
+  try {
+    const r = await fetch(`https://${host}/content/site.json`, { cache: 'no-store' });
+    const site = await r.json();
+    const slots = Array.isArray(site.slots) ? site.slots.filter((s) => /^\d{1,2}:\d{2}$/.test(s)) : [];
+    return slots.length ? slots : DEFAULT_SLOTS;
+  } catch (e) {
+    return DEFAULT_SLOTS;
+  }
+}
+
+// «Черновик» ручной записи: ждём, пока вы напишете имя/заметку
+const setPending = (chatId, data) => redis('SET', `pending:${chatId}`, JSON.stringify(data), 'EX', 900);
+const getPending = async (chatId) => { const raw = await redis('GET', `pending:${chatId}`); return raw ? JSON.parse(raw) : null; };
+const clearPending = (chatId) => redis('DEL', `pending:${chatId}`);
+
 // Кнопки под сообщением
 function bookingKeyboard(b, status = b.status) {
   if (!b.id || status === 'cancelled') return { inline_keyboard: [] };
   const row = [];
-  if (status !== 'confirmed') row.push({ text: '✅ Подтвердить', callback_data: `ok:${b.id}` });
+  if (status !== 'confirmed' && b.source !== 'manual') row.push({ text: '✅ Подтвердить', callback_data: `ok:${b.id}` });
   row.push({ text: '❌ Отменить запись', callback_data: `cancel:${b.id}` });
   return { inline_keyboard: [row] };
 }
 
 module.exports = {
   hasDb, redis, pipeline, reserve, getBooking, saveBooking, cancel, takenSlots, upcoming,
-  tg, BOT, OWNER, webhookSecret, esc, humanDate, bookingText, bookingKeyboard
+  tg, BOT, OWNER, webhookSecret, esc, humanDate, timeLabel, bookingText, bookingKeyboard,
+  WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending
 };
