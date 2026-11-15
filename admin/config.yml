@@ -123,6 +123,16 @@ collections:
           - { name: status, label: Подпись рядом с аватаром, widget: string, required: false }
           - { name: avatar, label: Аватар, widget: image }
           - { name: about, label: Текст «Обо мне», widget: markdown }
+          - name: services
+            label: Услуги для записи
+            label_singular: услугу
+            widget: list
+            hint: Варианты, которые посетитель выбирает в анкете «Записаться».
+          - name: slots
+            label: Время для записи
+            label_singular: время
+            widget: list
+            hint: "Слоты в формате ЧЧ:ММ, например 10:00, 11:30."
           - name: socials
             label: Соцсети
             label_singular: соцсеть

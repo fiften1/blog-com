@@ -83,6 +83,7 @@
           <li><a class="nav__link" href="#files">Файлы</a></li>
           <li><a class="nav__link" href="#videos">Видео</a></li>
           <li><a class="nav__link" href="#links">Ссылки</a></li>
+          <li><a class="nav__link" href="#booking">Запись</a></li>
           <li><a class="nav__link" href="#about">Обо мне</a></li>
         </ul>
       </nav>
@@ -112,7 +113,7 @@
         <h1 class="hero__title reveal" id="typewriter" data-text="Denys Savenko">Denys Savenko</h1>
         <div class="hero__cta reveal">
           <a href="#blog" class="btn btn--primary magnetic"><span>Читать блог</span></a>
-          <a href="#about" class="btn btn--ghost magnetic"><span>Обо мне</span></a>
+          <a href="#booking" class="btn btn--ghost magnetic"><span>Записаться</span></a>
         </div>
       </div>
       <a href="#search" class="hero__scroll" aria-label="Прокрутить вниз">scroll<span></span></a>
@@ -180,12 +181,83 @@
       </div>
     </section>
 
+    <!-- ===== ЗАПИСЬ: анкета, заявка уходит в Telegram-бота ===== -->
+    <section class="section" id="booking" aria-labelledby="booking-title">
+      <div class="container">
+        <header class="section__head reveal">
+          <span class="section__kicker">05 / запись</span>
+          <h2 class="section__title" id="booking-title">Записаться</h2>
+        </header>
+
+        <div class="booking glass reveal">
+          <div class="booking__intro">
+            <p class="booking__lead">Выберите услугу и удобное время. Я получу заявку и свяжусь с вами, чтобы всё подтвердить.</p>
+            <ol class="booking__steps">
+              <li><span>01</span>Выберите услугу</li>
+              <li><span>02</span>Укажите дату и время</li>
+              <li><span>03</span>Оставьте контакты</li>
+            </ol>
+          </div>
+
+          <form class="form" id="bookingForm" novalidate>
+            <fieldset class="form__group">
+              <legend class="form__label">Услуга</legend>
+              <div class="choice" id="serviceOptions" role="radiogroup"></div>
+            </fieldset>
+
+            <div class="form__row">
+              <label class="field">
+                <span class="form__label">Дата</span>
+                <input type="date" name="date" id="bookingDate" required>
+              </label>
+              <label class="field">
+                <span class="form__label">Время</span>
+                <select name="time" id="bookingTime" required></select>
+              </label>
+            </div>
+
+            <div class="form__row">
+              <label class="field">
+                <span class="form__label">Имя</span>
+                <input type="text" name="name" autocomplete="name" maxlength="80" placeholder="Как к вам обращаться" required>
+              </label>
+              <label class="field">
+                <span class="form__label">Телефон</span>
+                <input type="tel" name="phone" autocomplete="tel" maxlength="30" placeholder="+7 900 000-00-00" required>
+              </label>
+            </div>
+
+            <label class="field">
+              <span class="form__label">Почта</span>
+              <input type="email" name="email" autocomplete="email" maxlength="120" placeholder="you@example.com" required>
+            </label>
+
+            <label class="field">
+              <span class="form__label">Комментарий <small>— необязательно</small></span>
+              <textarea name="comment" rows="3" maxlength="1000" placeholder="Коротко о задаче, ссылки, пожелания"></textarea>
+            </label>
+
+            <!-- Ловушка для спам-ботов: человек это поле не видит и не заполняет -->
+            <div class="form__hp" aria-hidden="true">
+              <label>Сайт <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+            </div>
+
+            <div class="form__foot">
+              <button class="btn btn--primary magnetic" type="submit" id="bookingSubmit"><span>Отправить заявку</span></button>
+              <p class="form__note">Данные нужны только чтобы связаться с вами по заявке.</p>
+            </div>
+            <p class="form__status" id="bookingStatus" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== ОБО МНЕ ===== -->
     <section class="section" id="about" aria-labelledby="about-title">
       <div class="container">
         <div class="about glass tilt reveal">
           <div class="about__text">
-            <span class="section__kicker">05 / знакомство</span>
+            <span class="section__kicker">06 / знакомство</span>
             <h2 class="section__title" id="about-title">Обо мне</h2>
             <div data-site="about">
             <p>Привет! Меня зовут Denys Savenko. Я пишу код, фотографирую ночные города и собираю маленькие творческие проекты. Здесь — мои заметки о технологиях, процессе и жизни.</p>

@@ -769,6 +769,115 @@
     kick();
   }
 
+  /* ---------- 13. ЗАПИСЬ: АНКЕТА → TELEGRAM ---------- */
+  // Услуги и время берутся из content/site.json (редактируются в админке)
+  const DEFAULT_SERVICES = ['Создание сайта', 'Монтаж видео', 'Дизайн', 'Консультация', 'Другое'];
+  const DEFAULT_SLOTS = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
+
+  function initBooking(site) {
+    const form = $('#bookingForm');
+    if (!form) return;
+    const services = safe(site.services).filter(Boolean).length ? safe(site.services).filter(Boolean) : DEFAULT_SERVICES;
+    const slots = safe(site.slots).filter(Boolean).length ? safe(site.slots).filter(Boolean) : DEFAULT_SLOTS;
+    const dateInput = $('#bookingDate');
+    const timeSelect = $('#bookingTime');
+    const status = $('#bookingStatus');
+    const submit = $('#bookingSubmit');
+    const startedAt = Date.now();
+
+    // Услуги — радиокнопки-«таблетки»
+    $('#serviceOptions').innerHTML = services.map((s, i) => `
+      <label><input type="radio" name="service" value="${esc(s)}" ${i === 0 ? 'required' : ''}><span>${esc(s)}</span></label>`).join('');
+
+    // Дата: с сегодняшнего дня и на 60 дней вперёд (по местному времени посетителя)
+    const pad = (n) => String(n).padStart(2, '0');
+    const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const today = new Date();
+    const max = new Date(); max.setDate(max.getDate() + 60);
+    dateInput.min = isoLocal(today);
+    dateInput.max = isoLocal(max);
+
+    // Время: на сегодня прошедшие слоты недоступны
+    const fillSlots = () => {
+      const isToday = dateInput.value === isoLocal(new Date());
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes() + 30; // минимум за 30 минут
+      const prev = timeSelect.value;
+      timeSelect.innerHTML = '<option value="">Выберите время</option>' + slots.map((t) => {
+        const [h, m] = t.split(':').map(Number);
+        const off = isToday && h * 60 + (m || 0) < nowMin;
+        return `<option value="${esc(t)}" ${off ? 'disabled' : ''}>${esc(t)}${off ? ' — прошло' : ''}</option>`;
+      }).join('');
+      if (prev && !timeSelect.querySelector(`option[value="${CSS.escape(prev)}"]:not([disabled])`)) timeSelect.value = '';
+      else timeSelect.value = prev;
+    };
+    fillSlots();
+    dateInput.addEventListener('change', fillSlots);
+
+    // Проверка полей с понятными сообщениями
+    const setError = (el, msg) => {
+      const box = el.closest('.field, .form__group');
+      box.classList.toggle('is-invalid', !!msg);
+      let err = box.querySelector('.field__error');
+      if (msg) {
+        if (!err) { err = document.createElement('span'); err.className = 'field__error'; box.appendChild(err); }
+        err.textContent = msg;
+      } else if (err) err.remove();
+    };
+    const validate = () => {
+      const data = Object.fromEntries(new FormData(form));
+      const errors = [];
+      const check = (el, msg) => { setError(el, msg); if (msg) errors.push(el); };
+      check($('#serviceOptions'), data.service ? '' : 'Выберите услугу');
+      check(dateInput, !data.date ? 'Выберите дату' : (data.date < dateInput.min || data.date > dateInput.max) ? 'Эта дата недоступна' : '');
+      check(timeSelect, data.time ? '' : 'Выберите время');
+      check(form.elements.name, data.name.trim().length >= 2 ? '' : 'Напишите имя');
+      check(form.elements.phone, (data.phone.replace(/\D/g, '').length >= 7) ? '' : 'Проверьте номер телефона');
+      check(form.elements.email, /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim()) ? '' : 'Проверьте почту');
+      return { data, errors };
+    };
+    // Ошибку у поля убираем, как только его исправили
+    form.addEventListener('input', (e) => {
+      const box = e.target.closest('.field, .form__group');
+      if (box && box.classList.contains('is-invalid')) validate();
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      status.className = 'form__status';
+      const { data, errors } = validate();
+      if (errors.length) {
+        status.textContent = 'Проверьте отмеченные поля.';
+        status.classList.add('is-error');
+        (errors[0].querySelector?.('input') || errors[0]).focus();
+        return;
+      }
+      submit.disabled = true;
+      status.textContent = 'Отправляю…';
+      try {
+        const res = await fetch('/api/booking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...data, elapsed: Date.now() - startedAt })
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || !out.ok) throw new Error(out.error || 'Не получилось отправить заявку.');
+        const when = `${formatDate(data.date)}, ${data.time}`;
+        form.innerHTML = `
+          <div class="form-done">
+            <span class="form-done__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg></span>
+            <h3>Заявка отправлена</h3>
+            <p>${esc(data.service)} · ${esc(when)}. Я свяжусь с вами по телефону или почте, чтобы подтвердить время.</p>
+          </div>`;
+        form.closest('.booking').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+      } catch (err) {
+        status.textContent = `${err.message} Можно написать мне в Instagram.`;
+        status.classList.add('is-error');
+        submit.disabled = false;
+      }
+    });
+  }
+
   /* ---------- ЗАПУСК ---------- */
   // Сначала то, что не зависит от контента
   initTheme();
@@ -781,6 +890,7 @@
   // Затем загружаем контент из content/*.json и строим карточки
   loadContent().then((ok) => {
     applySite(DATA.site);
+    initBooking(DATA.site);
     renderPosts();
     renderFiles();
     renderVideos();
