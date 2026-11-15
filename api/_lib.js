@@ -50,9 +50,29 @@ const slotTs = (date, time) => Date.parse(`${date}T${time === WHOLE_DAY ? '00:00
 /* ---------- Записи ---------- */
 // Занять слот. Возвращает запись или null, если время уже занято (или весь день закрыт).
 // HSETNX атомарный: даже если двое нажмут «Отправить» одновременно, слот получит только один.
+/* ---------- Выходные: суббота и воскресенье закрыты всегда ----------
+   Открыть конкретный выходной можно только в приложении (ключ wopen:<дата>). */
+const WEEKEND = [6, 0];
+const isWeekend = (date) => WEEKEND.includes(new Date(`${date}T12:00:00Z`).getUTCDay());
+const WOPEN_SEC = 120 * 24 * 3600;
+async function weekendClosed(date) {
+  return isWeekend(date) && (await redis('EXISTS', `wopen:${date}`)) !== 1;
+}
+async function openWeekend(date) { await redis('SET', `wopen:${date}`, '1', 'EX', WOPEN_SEC); }
+async function closeWeekend(date) { await redis('DEL', `wopen:${date}`); }
+// Какие выходные из списка дат открыты
+async function openedWeekends(dates) {
+  const wk = dates.filter(isWeekend);
+  if (!wk.length) return new Set();
+  const res = await pipeline(wk.map((d) => ['EXISTS', `wopen:${d}`]));
+  return new Set(wk.filter((d, i) => res[i] === 1));
+}
+
 async function reserve(data, { count = true } = {}) {
   const id = crypto.randomBytes(5).toString('hex');
   if (data.time !== WHOLE_DAY && (await redis('HEXISTS', `day:${data.date}`, WHOLE_DAY)) === 1) return null;
+  // Записи с сайта/из кабинета на закрытый выходной не принимаем (вы вручную — можете)
+  if (data.time !== WHOLE_DAY && data.source !== 'manual' && (await weekendClosed(data.date))) return null;
   const ok = await redis('HSETNX', `day:${data.date}`, data.time, id);
   if (ok !== 1) return null;
   const booking = { id, ...data, status: data.status || 'new', createdAt: new Date().toISOString() };
@@ -212,7 +232,9 @@ const closeType = (b) => CLOSE_TYPES[b && b.closeType] || CLOSE_TYPES.busy;
 // Всё о дне для сайта: занятые слоты и (если день закрыт) публичная подпись
 async function dayInfo(date) {
   const times = await takenSlots(date);
-  if (!times.includes(WHOLE_DAY)) return { taken: times, closed: null };
+  if (!times.includes(WHOLE_DAY)) {
+    return { taken: times, closed: (await weekendClosed(date)) ? CLOSE_TYPES.dayoff.label : null };
+  }
   const id = await redis('HGET', `day:${date}`, WHOLE_DAY);
   const b = id ? await getBooking(id) : null;
   return { taken: times, closed: closeType(b).label };
@@ -507,5 +529,6 @@ module.exports = {
   getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts,
   nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
   favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
-  clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage, cancelLog
+  clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage, cancelLog,
+  isWeekend, weekendClosed, openWeekend, closeWeekend, openedWeekends
 };

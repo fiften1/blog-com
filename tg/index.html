@@ -451,7 +451,7 @@
           <div class="closed">
             <div class="closed__icon">${t.icon}</div>
             <h3>${esc(t.label)}</h3>
-            <p>${closed.name ? esc(closed.name) + '<br>' : ''}На сайте этот день показан как «${esc(t.label)}».</p>
+            <p>${closed.name ? esc(closed.name) + '<br>' : ''}${closed.weekend ? 'Суббота и воскресенье — выходные всегда. ' : ''}На сайте этот день показан как «${esc(t.label)}».</p>
             <button class="btn" data-open-day="${closed.id}">Открыть день для записи</button>
           </div>
           ${others.length ? `<p class="hint" style="margin-top:14px">Записи, сделанные до закрытия:</p><div class="slots" style="margin-top:6px">${others.map((b) => slotRow(b.time, b, false)).join('')}</div>` : ''}`;
@@ -464,8 +464,9 @@
         const past = isPastDay || (isToday && toMin(t) < state.nowMin);
         return !b && past ? '' : slotRow(t, b, past);
       }).join('');
+      const wkNote = weekday(date) % 6 === 0 && !isPastDay ? '<p class="hint" style="margin:0 2px 10px">Это выходной, который вы открыли для записи. Чтобы вернуть выходной — «Закрыть день» → 🌴 Выходной.</p>' : '';
       const empty = `<p class="hint" style="text-align:center;padding:18px 0">${isPastDay ? 'В этот день записей не было.' : 'На сегодня свободного времени больше нет.'}</p>`;
-      return head + `<div class="slots">${rows || empty}</div>` +
+      return head + wkNote + `<div class="slots">${rows || empty}</div>` +
         (isPastDay ? '' : `<div class="actions"><button class="btn" data-close-day="${date}">Закрыть день</button></div>`);
     }
 

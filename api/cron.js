@@ -78,6 +78,10 @@ module.exports = async function handler(req, res) {
   const result = { ok: true, summary: false, reminders: 0 };
   try {
     const [todays, tomorrows] = await Promise.all([lib.rangeBookings(today, today), lib.rangeBookings(tomorrow, tomorrow)]);
+    // Выходные по умолчанию — в сводке как «🌴 Выходной»
+    for (const [d, arr] of [[today, todays], [tomorrow, tomorrows]]) {
+      if (!arr.length && (await lib.weekendClosed(d))) arr.push({ date: d, time: lib.WHOLE_DAY, closeType: 'dayoff', name: '' });
+    }
 
     // 1. Сводка
     const url = lib.appUrl();

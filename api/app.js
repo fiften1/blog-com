@@ -54,10 +54,18 @@ module.exports = async function handler(req, res) {
       case 'month': {
         if (!isDate(body.from) || !isDate(body.to)) return res.status(400).json({ ok: false, error: 'Неверный период.' });
         const [list, cfg, pending, cancelled] = await Promise.all([lib.rangeBookings(body.from, body.to), (async () => ({ slots: await lib.siteSlots(), services: await lib.siteServices() }))(), pendingList(), lib.cancelLog()]);
+        // Выходные (сб, вс) закрыты по умолчанию — показываем их как «🌴 Выходной», пока вы не откроете день
+        const dates = [];
+        for (let d = body.from; d <= body.to && dates.length < 62; d = lib.addDays(d, 1)) dates.push(d);
+        const opened = await lib.openedWeekends(dates);
+        const busy = new Set(list.map((b) => b.date));
+        const weekendOff = dates.filter((d) => lib.isWeekend(d) && !opened.has(d) && !busy.has(d))
+          .map((d) => ({ id: `wk:${d}`, date: d, time: lib.WHOLE_DAY, status: 'new', source: 'manual', closeType: 'dayoff', name: '', weekend: true }));
         return res.status(200).json({
           ok: true, today: lib.todayISO(), nowMinutes: lib.nowMinutes(),
           slots: cfg.slots, services: cfg.services, closeTypes: lib.CLOSE_TYPES,
-          bookings: list.map(view), pending, cancelled
+          bookings: list.map(view).concat(weekendOff), pending, cancelled,
+          openedWeekends: [...opened]
         });
       }
 
@@ -78,12 +86,23 @@ module.exports = async function handler(req, res) {
         const date = clean(body.date, 10);
         const type = lib.CLOSE_TYPES[body.type] ? body.type : 'dayoff';
         if (!isDate(date)) return res.status(400).json({ ok: false, error: 'Выберите день.' });
+        // Открытый вами выходной снова делаем обычным выходным (без заметки — просто вернуть правило)
+        if (lib.isWeekend(date) && type === 'dayoff' && !clean(body.note, 200) && !(await lib.takenSlots(date)).length) {
+          await lib.closeWeekend(date);
+          return res.status(200).json({ ok: true, booking: { id: `wk:${date}`, date, time: lib.WHOLE_DAY, status: 'new', source: 'manual', closeType: 'dayoff', name: '', weekend: true } });
+        }
         const b = await lib.reserve({ date, time: lib.WHOLE_DAY, source: 'manual', closeType: type, name: clean(body.note, 200), service: '', phone: '', email: '', comment: '' });
         if (!b) return res.status(409).json({ ok: false, error: 'Этот день уже закрыт.' });
         return res.status(200).json({ ok: true, booking: view(b) });
       }
 
       case 'cancel': {
+        // «Открыть день» для выходного по умолчанию
+        const wk = /^wk:(\d{4}-\d{2}-\d{2})$/.exec(String(body.id || ''));
+        if (wk) {
+          await lib.openWeekend(wk[1]);
+          return res.status(200).json({ ok: true, booking: { id: body.id, date: wk[1] } });
+        }
         const b = await lib.cancel(clean(body.id, 20), 'owner', 'в приложении');
         if (!b) return res.status(404).json({ ok: false, error: 'Запись уже отменена.' });
         await lib.syncOwnerMessage(b, 'cancelled');
