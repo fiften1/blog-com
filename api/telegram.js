@@ -13,6 +13,7 @@
      откройте https://<сайт>/api/telegram?setup=1
    ===================================================================== */
 const lib = require('./_lib');
+const mail = require('./_mail');
 
 const isOwner = (id) => String(id) === lib.OWNER();
 const COMMANDS = [
@@ -175,7 +176,8 @@ async function onButton(q) {
     // --- отмена записи ---
     case 'cancel':
     case 'del': {
-      const b = await lib.cancel(arg);
+      const b = await lib.cancel(arg, 'owner');
+      if (b && b.time !== lib.WHOLE_DAY) await mail.sendToClient('cancelledByOwner', b);
       if (!b) {
         await answer('Запись уже отменена или устарела');
         if (action === 'cancel') await lib.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
@@ -197,7 +199,8 @@ async function onButton(q) {
       if (!b) return answer('Запись не найдена');
       b.status = 'confirmed';
       await lib.saveBooking(b);
-      await answer('Подтверждено');
+      const mailed = await mail.sendToClient('confirmed', b);
+      await answer(mailed ? 'Подтверждено, клиенту ушло письмо' : 'Подтверждено');
       return lib.tg('editMessageText', {
         chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
         text: lib.bookingText(b), reply_markup: lib.bookingKeyboard(b)

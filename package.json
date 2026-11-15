@@ -1,0 +1,9 @@
+{
+  "name": "blog-com",
+  "private": true,
+  "description": "Личный блог Denys Savenko: статический сайт + серверные функции Vercel (api/)",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "nodemailer": "10.3.1"
+  }
+}

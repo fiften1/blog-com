@@ -774,6 +774,24 @@
   const DEFAULT_SERVICES = ['Создание сайта', 'Монтаж видео', 'Дизайн', 'Консультация', 'Другое'];
   const DEFAULT_SLOTS = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
 
+  // Откуда пришёл посетитель: utm_source из ссылки или сайт-источник (для статистики заявок)
+  function visitSource() {
+    try {
+      const saved = sessionStorage.getItem('visitSource');
+      if (saved !== null) return saved;
+    } catch (e) { /* приватный режим */ }
+    let src = new URLSearchParams(location.search).get('utm_source') || '';
+    if (!src && document.referrer) {
+      try {
+        const host = new URL(document.referrer).hostname.replace(/^www\./, '');
+        if (host && host !== location.hostname) src = host;
+      } catch (e) { /* некорректный referrer */ }
+    }
+    try { sessionStorage.setItem('visitSource', src); } catch (e) { /* ничего */ }
+    return src;
+  }
+  visitSource(); // запоминаем источник сразу при заходе
+
   function initBooking(site) {
     const form = $('#bookingForm');
     if (!form) return;
@@ -891,7 +909,7 @@
         const res = await fetch('/api/booking', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...data, elapsed: Date.now() - startedAt })
+          body: JSON.stringify({ ...data, ref: visitSource(), elapsed: Date.now() - startedAt })
         });
         const out = await res.json().catch(() => ({}));
         if (out.taken) {
@@ -911,6 +929,7 @@
             <span class="form-done__icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg></span>
             <h3>Заявка отправлена</h3>
             <p>${esc(data.service)} · ${esc(when)}. Я свяжусь с вами по телефону или почте, чтобы подтвердить время.</p>
+            ${out.manageUrl ? `<p>Подтверждение отправлено на почту. Если планы поменяются, запись можно <a href="${esc(out.manageUrl)}">перенести или отменить</a>.</p>` : ''}
           </div>`;
         form.closest('.booking').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
       } catch (err) {

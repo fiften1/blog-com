@@ -8,6 +8,7 @@
    Без базы форма тоже работает, но не следит за занятым временем.
    ===================================================================== */
 const lib = require('./_lib');
+const mail = require('./_mail');
 
 // Простейшая защита от флуда: не больше 5 заявок за 10 минут с одного IP
 const hits = new Map();
@@ -29,7 +30,9 @@ function validate(body) {
     name: clean(body.name, 80),
     phone: clean(body.phone, 30),
     email: clean(body.email, 120),
-    comment: String(body.comment == null ? '' : body.comment).trim().slice(0, 1000)
+    comment: String(body.comment == null ? '' : body.comment).trim().slice(0, 1000),
+    // откуда пришёл посетитель: utm_source или сайт-источник (для статистики)
+    ref: clean(body.ref, 60).toLowerCase().replace(/^www\./, '')
   };
   if (!data.service) return { error: 'Выберите услугу.' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) return { error: 'Выберите дату.' };
@@ -102,7 +105,10 @@ module.exports = async function handler(req, res) {
     return res.status(502).json({ ok: false, error: 'Не получилось отправить заявку.' });
   }
 
-  return res.status(200).json({ ok: true });
+  // 3. Письмо клиенту «Заявка получена» со ссылкой «изменить или отменить»
+  if (booking.id) await mail.sendToClient('received', booking);
+
+  return res.status(200).json({ ok: true, manageUrl: booking.id ? lib.manageUrl(booking) : null });
 };
 
 module.exports.validate = validate;

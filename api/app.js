@@ -9,6 +9,7 @@
      confirm {id}                             — подтвердить заявку
    ===================================================================== */
 const lib = require('./_lib');
+const mail = require('./_mail');
 
 const clean = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
 const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
@@ -74,8 +75,9 @@ module.exports = async function handler(req, res) {
       }
 
       case 'cancel': {
-        const b = await lib.cancel(clean(body.id, 20));
+        const b = await lib.cancel(clean(body.id, 20), 'owner');
         if (!b) return res.status(404).json({ ok: false, error: 'Запись уже отменена.' });
+        if (b.time !== lib.WHOLE_DAY) await mail.sendToClient('cancelledByOwner', b);
         return res.status(200).json({ ok: true, booking: view(b) });
       }
 
@@ -84,7 +86,23 @@ module.exports = async function handler(req, res) {
         if (!b) return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
         b.status = 'confirmed';
         await lib.saveBooking(b);
+        await mail.sendToClient('confirmed', b);
         return res.status(200).json({ ok: true, booking: view(b) });
+      }
+
+      case 'stats': {
+        const month = String(body.month || '');
+        if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ ok: false, error: 'Неверный месяц.' });
+        const [y, m] = month.split('-').map(Number);
+        const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        const [counters, list] = await Promise.all([lib.getStats(month), lib.rangeBookings(`${month}-01`, `${month}-${String(last).padStart(2, '0')}`)]);
+        // Загрузка по дням недели — по записям, которые назначены на этот месяц
+        const weekdays = [0, 0, 0, 0, 0, 0, 0];
+        list.filter((b) => b.time !== lib.WHOLE_DAY).forEach((b) => {
+          const [yy, mm, dd] = b.date.split('-').map(Number);
+          weekdays[(new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay() + 6) % 7]++;
+        });
+        return res.status(200).json({ ok: true, month, counters, scheduled: list.filter((b) => b.time !== lib.WHOLE_DAY).length, weekdays, mail: mail.hasMail() });
       }
 
       default:

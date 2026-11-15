@@ -50,18 +50,51 @@ const slotTs = (date, time) => Date.parse(`${date}T${time === WHOLE_DAY ? '00:00
 /* ---------- Записи ---------- */
 // Занять слот. Возвращает запись или null, если время уже занято (или весь день закрыт).
 // HSETNX атомарный: даже если двое нажмут «Отправить» одновременно, слот получит только один.
-async function reserve(data) {
+async function reserve(data, { count = true } = {}) {
   const id = crypto.randomBytes(5).toString('hex');
   if (data.time !== WHOLE_DAY && (await redis('HEXISTS', `day:${data.date}`, WHOLE_DAY)) === 1) return null;
   const ok = await redis('HSETNX', `day:${data.date}`, data.time, id);
   if (ok !== 1) return null;
-  const booking = { id, ...data, status: 'new', createdAt: new Date().toISOString() };
+  const booking = { id, ...data, status: data.status || 'new', createdAt: new Date().toISOString() };
   await pipeline([
     ['SET', `bk:${id}`, JSON.stringify(booking), 'EX', KEEP_SEC],
     ['EXPIRE', `day:${data.date}`, KEEP_SEC],
     ['ZADD', 'bookings', slotTs(data.date, data.time), id]
   ]);
+  // Статистика: считаем новые записи (закрытые дни и переносы не считаем)
+  if (count && data.time !== WHOLE_DAY) {
+    await track(['total', data.source === 'manual' ? 'manual' : 'site',
+      data.service ? `svc:${data.service}` : 'svc:—',
+      data.source === 'manual' ? '' : `ref:${data.ref || 'прямой заход'}`]).catch(() => {});
+  }
   return booking;
+}
+
+/* ---------- Статистика: счётчики по месяцам ---------- */
+// stats:ГГГГ-ММ — хеш «поле → число». Месяц — когда пришла заявка.
+async function track(fields, when) {
+  const key = `stats:${(when || todayISO()).slice(0, 7)}`;
+  const cmds = fields.filter(Boolean).map((f) => ['HINCRBY', key, f.slice(0, 80), 1]);
+  if (!cmds.length) return;
+  cmds.push(['EXPIRE', key, 400 * 24 * 3600]);
+  await pipeline(cmds);
+}
+async function getStats(month) {
+  const h = await redis('HGETALL', `stats:${month}`);
+  const out = {};
+  if (Array.isArray(h)) for (let i = 0; i < h.length; i += 2) out[h[i]] = Number(h[i + 1]);
+  else if (h && typeof h === 'object') for (const [k, v] of Object.entries(h)) out[k] = Number(v);
+  return out;
+}
+
+/* ---------- Ссылка для клиента «изменить или отменить» ---------- */
+const siteHost = () => process.env.VERCEL_PROJECT_PRODUCTION_URL || '';
+// Токен — подпись id записи ключом, выведенным из токена бота: подделать ссылку нельзя
+const manageToken = (id) => crypto.createHmac('sha256', `manage:${BOT()}`).update(String(id)).digest('hex').slice(0, 24);
+const manageUrl = (b) => `https://${siteHost()}/booking/?id=${encodeURIComponent(b.id)}&t=${manageToken(b.id)}`;
+function checkManage(id, t) {
+  if (!/^[a-f0-9]{6,20}$/.test(String(id)) || typeof t !== 'string' || t.length !== 24) return false;
+  return crypto.timingSafeEqual(Buffer.from(manageToken(id)), Buffer.from(t));
 }
 
 async function getBooking(id) {
@@ -73,14 +106,16 @@ async function saveBooking(b) {
   await redis('SET', `bk:${b.id}`, JSON.stringify(b), 'EX', KEEP_SEC);
 }
 
-// Отменить запись: освобождает слот и удаляет данные
-async function cancel(id) {
+// Отменить запись: освобождает слот и удаляет данные.
+// by: 'owner' | 'client' — для статистики отмен (без by — не считаем, например при откате)
+async function cancel(id, by) {
   const b = await getBooking(id);
   if (!b) return null;
   const owner = await redis('HGET', `day:${b.date}`, b.time);
   const cmds = [['DEL', `bk:${id}`], ['ZREM', 'bookings', id]];
   if (owner === id) cmds.push(['HDEL', `day:${b.date}`, b.time]);
   await pipeline(cmds);
+  if (by && b.time !== WHOLE_DAY) await track([`cancel:${by}`]).catch(() => {});
   return b;
 }
 
@@ -213,6 +248,7 @@ function bookingText(b, status = b.status) {
     b.phone ? `<b>Телефон:</b> ${esc(b.phone)}` : '',
     b.email ? `<b>Почта:</b> ${esc(b.email)}` : '',
     b.comment ? `\n<b>Комментарий:</b>\n${esc(b.comment)}` : '',
+    b.ref ? `<i>Откуда: ${esc(b.ref)}</i>` : '',
     STATUS[status] ? `\n${STATUS[status]}` : ''
   ].join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -270,5 +306,6 @@ module.exports = {
   hasDb, redis, pipeline, reserve, getBooking, saveBooking, cancel, takenSlots, upcoming,
   tg, BOT, OWNER, webhookSecret, esc, humanDate, timeLabel, bookingText, bookingKeyboard,
   WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending,
-  CLOSE_TYPES, closeType, dayInfo, rangeBookings, appUrl, verifyInitData, siteServices
+  CLOSE_TYPES, closeType, dayInfo, rangeBookings, appUrl, verifyInitData, siteServices,
+  track, getStats, siteHost, manageToken, manageUrl, checkManage
 };
