@@ -177,7 +177,7 @@ async function onButton(q) {
     case 'cancel':
     case 'del': {
       const b = await lib.cancel(arg, 'owner');
-      if (b && b.time !== lib.WHOLE_DAY) await mail.sendToClient('cancelledByOwner', b);
+      if (b && b.time !== lib.WHOLE_DAY) await mail.notifyClient('cancelledByOwner', b);
       if (!b) {
         await answer('Запись уже отменена или устарела');
         if (action === 'cancel') await lib.tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
@@ -199,7 +199,7 @@ async function onButton(q) {
       if (!b) return answer('Запись не найдена');
       b.status = 'confirmed';
       await lib.saveBooking(b);
-      const mailed = await mail.sendToClient('confirmed', b);
+      const mailed = await mail.notifyClient('confirmed', b);
       await answer(mailed ? 'Подтверждено, клиенту ушло письмо' : 'Подтверждено');
       return lib.tg('editMessageText', {
         chat_id: chatId, message_id: messageId, parse_mode: 'HTML', disable_web_page_preview: true,
@@ -236,8 +236,35 @@ async function sendList(chatId, editId) {
 }
 
 /* ---------- Текстовые сообщения ---------- */
+// Сообщения от клиентов: привязка Telegram к личному кабинету
+async function onClientMessage(m) {
+  const chatId = m.chat.id;
+  const text = String(m.text || '').trim();
+  const site = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}/account/`;
+  const linkMatch = text.match(/^\/start\s+l_([a-f0-9]{16})$/);
+  if (linkMatch && lib.hasDb()) {
+    const email = await lib.linkTelegram(linkMatch[1], chatId, [m.from.first_name, m.from.last_name].filter(Boolean).join(' '));
+    if (email) {
+      return lib.tg('sendMessage', {
+        chat_id: chatId, parse_mode: 'HTML',
+        text: `✅ <b>Telegram подключён</b>\n\nСюда будут приходить подтверждения записей, переносы и напоминания — накануне и за час до визита.\n\nУправлять записями — в личном кабинете.`,
+        reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] }
+      });
+    }
+    return lib.tg('sendMessage', { chat_id: chatId, text: 'Ссылка устарела. Откройте личный кабинет на сайте и нажмите «Подключить Telegram» ещё раз.', reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] } });
+  }
+  const linked = lib.hasDb() ? await lib.redis('GET', `tgchat:${chatId}`) : null;
+  return lib.tg('sendMessage', {
+    chat_id: chatId,
+    text: linked
+      ? 'Это бот уведомлений о ваших записях. Записаться, перенести или отменить можно в личном кабинете.'
+      : 'Здравствуйте! Это бот уведомлений о записях. Чтобы получать их, откройте личный кабинет на сайте и нажмите «Подключить Telegram».',
+    reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] }
+  });
+}
+
 async function onMessage(m) {
-  if (!isOwner(m.from && m.from.id)) return; // чужим не отвечаем
+  if (!isOwner(m.from && m.from.id)) return onClientMessage(m); // клиенты
   const chatId = m.chat.id;
   const text = String(m.text || '').trim();
   const needDb = () => lib.tg('sendMessage', { chat_id: chatId, text: 'База не подключена — эта функция недоступна.' });

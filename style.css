@@ -482,6 +482,34 @@ h1, h2, h3 {
 .cform--guest { align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px; border-radius: 12px; border: 1px dashed var(--line-strong); }
 .cform--guest p { margin: 0; color: var(--text-muted); font-size: .92rem; }
 
+/* Сохранить (☆) — для вошедших */
+.fav {
+  position: relative; z-index: 5; display: inline-grid; place-items: center; width: 32px; height: 32px;
+  border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text-muted);
+  transition: color .2s, border-color .2s, background .2s;
+}
+.fav[hidden] { display: none; }
+.fav svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+.fav:hover { color: #f5b301; border-color: rgba(245, 179, 1, .45); }
+.fav.is-on { color: #f5b301; border-color: rgba(245, 179, 1, .45); background: rgba(245, 179, 1, .08); }
+.fav.is-on svg { fill: currentColor; }
+.fav.is-pop svg { animation: likePop .45s var(--ease); }
+#modalMeta .fav { margin-left: auto; }
+#modalMeta .fav + .like { margin-left: 0; }
+.file-card__foot { gap: 10px; }
+
+/* Отзывы */
+.grid--reviews { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.review { padding: 22px; gap: 14px; }
+.review__stars { color: #f5b301; letter-spacing: 2px; font-size: 1rem; }
+.review__stars span { color: var(--line-strong); }
+.review__text { margin: 0; color: var(--text); line-height: 1.65; flex: 1; }
+.review__who { display: flex; align-items: center; gap: 10px; }
+.review__who img, .review__ava { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }
+.review__ava { display: grid; place-items: center; background: rgba(168, 85, 247, .15); color: var(--accent); font: 600 .9rem var(--font-head); }
+.review__who b { display: block; color: var(--heading); font-weight: 500; font-size: .92rem; }
+.review__who span { font-size: .8rem; color: var(--text-faint); }
+
 /* Лайк */
 .like {
   position: relative; z-index: 5; /* выше невидимой кнопки, открывающей пост */

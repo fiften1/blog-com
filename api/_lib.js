@@ -353,11 +353,100 @@ function bookingKeyboard(b, status = b.status) {
   return { inline_keyboard: rows };
 }
 
+/* ---------- «Сейчас» как число для сравнения со временем записей (по вашему поясу) ---------- */
+const nowSlotTs = () => {
+  const m = nowMinutes();
+  return slotTs(todayISO(), `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+};
+
+// Записи клиента за промежуток (по почте); по умолчанию — прошлые 75 дней (история)
+async function bookingsOf(email, from = nowSlotTs() - 75 * 86400e3, to = nowSlotTs()) {
+  const ids = await redis('ZRANGEBYSCORE', 'bookings', from, to);
+  if (!ids || !ids.length) return [];
+  const raws = await pipeline(ids.map((id) => ['GET', `bk:${id}`]));
+  const e = String(email).toLowerCase();
+  return raws.filter(Boolean).map((r) => JSON.parse(r))
+    .filter((b) => b.time !== WHOLE_DAY && String(b.email || '').toLowerCase() === e);
+}
+
+/* ---------- Telegram клиента: привязка через бота заявок ---------- */
+let botNameCache = null;
+async function botUsername() {
+  if (botNameCache) return botNameCache;
+  const cached = await redis('GET', 'bot:username').catch(() => null);
+  if (cached) return (botNameCache = cached);
+  const me = await tg('getMe', {});
+  botNameCache = me.username;
+  await redis('SET', 'bot:username', me.username, 'EX', 7 * 86400).catch(() => {});
+  return botNameCache;
+}
+// Одноразовый код для ссылки t.me/<бот>?start=l_<код> (живёт 15 минут)
+async function telegramLinkUrl(email) {
+  const code = crypto.randomBytes(8).toString('hex');
+  await redis('SET', `tglink:${code}`, String(email).toLowerCase(), 'EX', 900);
+  return `https://t.me/${await botUsername()}?start=l_${code}`;
+}
+// Бот получил /start l_<код> — связываем чат с почтой
+async function linkTelegram(code, chatId, tgName) {
+  const email = await redis('GET', `tglink:${code}`);
+  if (!email) return null;
+  const old = await redis('GET', `tguser:${email}`);
+  const cmds = [['DEL', `tglink:${code}`], ['SET', `tguser:${email}`, JSON.stringify({ chatId, name: tgName || '' })], ['SET', `tgchat:${chatId}`, email]];
+  if (old) { try { const o = JSON.parse(old); if (String(o.chatId) !== String(chatId)) cmds.push(['DEL', `tgchat:${o.chatId}`]); } catch (e) {} }
+  await pipeline(cmds);
+  return email;
+}
+async function telegramOf(email) {
+  const raw = await redis('GET', `tguser:${String(email).toLowerCase()}`);
+  return raw ? JSON.parse(raw) : null;
+}
+async function unlinkTelegram(email) {
+  const t = await telegramOf(email);
+  const cmds = [['DEL', `tguser:${String(email).toLowerCase()}`]];
+  if (t) cmds.push(['DEL', `tgchat:${t.chatId}`]);
+  await pipeline(cmds);
+  return t;
+}
+
+/* ---------- Избранное и «мои лайки» (для вошедших) ---------- */
+const favKey = (email) => `fav:${String(email).toLowerCase()}`;
+const ulikeKey = (email) => `ulike:${String(email).toLowerCase()}`;
+
+/* ---------- Отзывы: rv:<id> → JSON; reviews — сортированный список; urv:<почта> — id записей с отзывом ---------- */
+async function getReview(id) { const r = await redis('GET', `rv:${id}`); return r ? JSON.parse(r) : null; }
+async function saveReview(r) {
+  await pipeline([['SET', `rv:${r.id}`, JSON.stringify(r)], ['ZADD', 'reviews', r.ts, r.id], ['SADD', `urv:${r.email}`, r.bookingId]]);
+}
+async function deleteReview(r) {
+  await pipeline([['DEL', `rv:${r.id}`], ['ZREM', 'reviews', r.id], ['SREM', `urv:${r.email}`, r.bookingId]]);
+}
+async function listReviews({ onlyPublished = true, email = null, limit = 50 } = {}) {
+  const ids = await redis('ZRANGE', 'reviews', 0, -1);
+  if (!ids || !ids.length) return [];
+  const raws = await pipeline(ids.map((id) => ['GET', `rv:${id}`]));
+  return raws.filter(Boolean).map((r) => JSON.parse(r))
+    .filter((r) => (!onlyPublished || r.status === 'published') && (!email || r.email === email))
+    .sort((a, b) => b.ts - a.ts).slice(0, limit);
+}
+
+/* ---------- Бот модерации (комментарии и отзывы) ---------- */
+const MOD = () => process.env.TELEGRAM_MOD_BOT_TOKEN || '';
+async function modTg(method, payload) {
+  const r = await fetch(`https://api.telegram.org/bot${MOD()}/${method}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || !out.ok) throw new Error(`mod ${method}: ${out.description || r.status}`);
+  return out.result;
+}
+
 module.exports = {
   hasDb, redis, pipeline, reserve, getBooking, saveBooking, cancel, takenSlots, upcoming,
   tg, BOT, OWNER, webhookSecret, esc, humanDate, timeLabel, bookingText, bookingKeyboard,
   WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending,
   CLOSE_TYPES, closeType, dayInfo, rangeBookings, appUrl, verifyInitData, siteServices,
   track, getStats, siteHost, manageToken, manageUrl, checkManage,
-  getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts
+  getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts,
+  nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
+  favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs
 };

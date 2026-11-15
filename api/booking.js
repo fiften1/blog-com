@@ -8,7 +8,7 @@
    Без базы форма тоже работает, но не следит за занятым временем.
    ===================================================================== */
 const lib = require('./_lib');
-const mail = require('./_mail');
+const ops = require('./_ops');
 
 // Простейшая защита от флуда: не больше 5 заявок за 10 минут с одного IP
 const hits = new Map();
@@ -75,43 +75,9 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ ok: false, error: 'Запись временно не работает.' });
   }
 
-  // 1. Занимаем время в базе (если база подключена)
-  let booking = { ...data, status: 'new' };
-  if (lib.hasDb()) {
-    try {
-      const reserved = await lib.reserve(data);
-      if (!reserved) {
-        return res.status(409).json({ ok: false, taken: true, error: 'Это время уже заняли. Выберите другое.' });
-      }
-      booking = reserved;
-    } catch (e) {
-      console.error('booking: ошибка базы', e.message);
-      return res.status(500).json({ ok: false, error: 'Не получилось отправить заявку.' });
-    }
-  }
-
-  // 2. Отправляем в Telegram; если не вышло — освобождаем время обратно
-  try {
-    await lib.tg('sendMessage', {
-      chat_id: lib.OWNER(),
-      text: lib.bookingText(booking),
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-      reply_markup: lib.bookingKeyboard(booking)
-    });
-  } catch (e) {
-    console.error('booking:', e.message);
-    if (booking.id) await lib.cancel(booking.id).catch(() => {});
-    return res.status(502).json({ ok: false, error: 'Не получилось отправить заявку.' });
-  }
-
-  // Профиль для автозаполнения анкеты в следующий раз (имя и телефон по почте)
-  if (lib.hasDb()) await lib.saveProfile(booking.email, booking).catch(() => {});
-
-  // 3. Письмо клиенту «Заявка получена» со ссылкой «изменить или отменить»
-  if (booking.id) await mail.sendToClient('received', booking);
-
-  return res.status(200).json({ ok: true, manageUrl: booking.id ? lib.manageUrl(booking) : null });
+  const r = await ops.createBooking(data);
+  if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
+  return res.status(200).json({ ok: true, manageUrl: r.booking.id ? lib.manageUrl(r.booking) : null });
 };
 
 module.exports.validate = validate;

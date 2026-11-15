@@ -8,6 +8,7 @@
    ===================================================================== */
 const crypto = require('crypto');
 const lib = require('./_lib');
+const { readSession } = require('./_session');
 
 const ID_RE = /^[a-z0-9_-]{6,64}$/;
 
@@ -57,6 +58,9 @@ module.exports = async function handler(req, res) {
         like ? ['SADD', `likes:${id}`, me] : ['SREM', `likes:${id}`, me],
         ['SCARD', `likes:${id}`]
       ]);
+      // вошедшим через Google запоминаем лайк в аккаунте — для раздела «Активность» в кабинете
+      const user = readSession(req);
+      if (user) await lib.redis(like ? 'SADD' : 'SREM', lib.ulikeKey(user.email), id).catch(() => {});
       return res.status(200).json({ ok: true, liked: like, count: Number(count) || 0 });
     }
 

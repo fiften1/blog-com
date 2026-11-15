@@ -2,7 +2,9 @@
    /api/cron — запускается Vercel Cron раз в день (расписание в vercel.json,
    06:00 UTC = 07:00 по Варшаве зимой / 08:00 летом).
      1. Утренняя сводка вам в Telegram: записи на сегодня и сколько на завтра
-     2. Напоминания клиентам на почту о записи на завтра
+     2. Напоминания клиентам о записи на завтра (почта + Telegram)
+   /api/cron?task=soon — каждые ~10 минут: напоминание за час до записи
+   (вызывается из GitHub Actions, .github/workflows/reminders.yml)
    Защита: если задан CRON_SECRET — нужен заголовок от Vercel; в любом случае
    задача выполняется не больше одного раза в день (замок в базе).
    ===================================================================== */
@@ -49,6 +51,22 @@ module.exports = async function handler(req, res) {
   if (secret && req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ ok: false });
   if (!lib.hasDb() || !lib.BOT() || !lib.OWNER()) return res.status(503).json({ ok: false, error: 'not configured' });
 
+  // Каждые ~10 минут (GitHub Actions): напоминание клиентам примерно за час до записи.
+  // Повторный вызов безопасен — у каждой записи отмечается, что напоминание уже ушло.
+  if (req.query && req.query.task === 'soon') {
+    const now = lib.nowSlotTs();
+    const due = await lib.redis('ZRANGEBYSCORE', 'bookings', now + 30 * 60e3, now + 75 * 60e3);
+    let sent = 0;
+    for (const id of due || []) {
+      const b = await lib.getBooking(id);
+      if (!b || b.time === lib.WHOLE_DAY || b.soonReminded || !b.email) continue;
+      b.soonReminded = true; // сначала отмечаем — даже при сбое письма не пришлём дважды
+      await lib.saveBooking(b);
+      if (await mail.notifyClient('soon', b, { onlyOne: true })) sent++;
+    }
+    return res.status(200).json({ ok: true, task: 'soon', checked: (due || []).length, sent });
+  }
+
   const today = lib.todayISO();
   const tomorrow = lib.addDays(today, 1);
 
@@ -72,7 +90,7 @@ module.exports = async function handler(req, res) {
     // 2. Напоминания клиентам о завтрашних записях
     for (const b of tomorrows) {
       if (b.time === lib.WHOLE_DAY || !b.email || b.reminded) continue;
-      if (await mail.sendToClient('reminder', b)) {
+      if (await mail.notifyClient('reminder', b)) {
         b.reminded = true;
         await lib.saveBooking(b);
         result.reminders++;

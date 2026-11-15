@@ -201,6 +201,7 @@
     for (const ch of `${p.date}|${p.title}`) h = (h * 31 + ch.codePointAt(0)) >>> 0;
     return `p-${h.toString(36)}`;
   };
+  const favButton = (key, label) => `<button class="fav" type="button" data-fav="${esc(key)}" aria-pressed="false" aria-label="${label}" title="${label}" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>`;
   const likeButton = (p) => `<button class="like" type="button" data-like="${esc(postId(p))}" aria-pressed="false" aria-label="Нравится" hidden>${ICONS.heart}<span class="like__count"></span></button>`;
 
   /* ---------- 2. РЕНДЕР КАРТОЧЕК ---------- */
@@ -220,6 +221,7 @@
             <span class="read-more">Читать ${ICONS.arrow}</span>
             <span class="post-card__stats">
               <span class="ccount" data-ccount="${esc(postId(p))}" hidden>${ICONS.comment}<b></b></span>
+              ${favButton(`post:${postId(p)}`, 'Сохранить пост')}
               ${likeButton(p)}
             </span>
           </div>
@@ -245,6 +247,7 @@
           ${tagsHTML(f.tags)}
           <div class="file-card__foot">
             <a class="btn btn--primary btn--sm magnetic" href="${esc(f.file)}" download="${esc(fileName)}">${ICONS.download}<span>Скачать</span></a>
+            ${favButton(`file:${f.file}`, 'Сохранить файл')}
           </div>
         </div>
       </article>`;
@@ -393,7 +396,8 @@
     const cover = $('#modalCover');
     cover.src = p.cover; cover.alt = p.alt || p.title;
     $('#modalTitle').textContent = p.title;
-    $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"') + likeButton(p);
+    $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"') + favButton(`post:${postId(p)}`, 'Сохранить пост') + likeButton(p);
+    favs.paint();
     likes.paint();
     comments.load(postId(p));
     $('#modalContent').innerHTML = markdown(p.body || p.excerpt || '');
@@ -1440,7 +1444,7 @@
         lastFocus && lastFocus.focus({ preventScroll: true });
       }, reducedMotion ? 0 : 400);
     }
-    btn.addEventListener('click', open);
+    btn.addEventListener('click', () => { location.href = 'account/'; });
     modalEl.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) close(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modalEl.hidden) close(); });
 
@@ -1448,18 +1452,19 @@
       if (Array.isArray(site && site.slots) && site.slots.length) slotsCfg = site.slots;
       try {
         const out = await api();
-        Object.assign(st, { enabled: out.enabled, clientId: out.clientId, user: out.user, bookings: out.bookings || [], profile: out.profile || null });
+        Object.assign(st, { enabled: out.enabled, clientId: out.clientId, user: out.user, bookings: out.bookings || [], profile: out.profile || null, favorites: out.favorites || [] });
       } catch (e) { st.enabled = false; } // нет сервера (например, GitHub Pages) — кабинет скрыт
       paintButton();
       autofill();
-      if (location.hash === '#account' && st.enabled) open();
+      favs.paint();
+      if (location.hash === '#account' && st.enabled) location.href = 'account/';
     }
     // После новой записи — обновить список в кабинете
     async function refresh() {
       if (!st.user) return;
       try { const out = await api(); st.bookings = out.bookings || []; } catch (e) { /* ничего */ }
     }
-    return { init, refresh, open, isEnabled: () => st.enabled };
+    return { init, refresh, open, isEnabled: () => st.enabled, user: () => st.user, favorites: () => st.favorites || [], setFavorites: (f) => { st.favorites = f; } };
   })();
 
   /* ---------- 16. КОММЕНТАРИИ К ПОСТАМ ---------- */
@@ -1572,7 +1577,7 @@
       } catch (err) { msg.textContent = err.message; btn.disabled = false; }
     });
     box.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-clogin]')) return account.open();
+      if (e.target.closest('[data-clogin]')) { location.href = `account/?back=${encodeURIComponent(`/#post-${current}`)}`; return; }
       const del = e.target.closest('[data-cdel]');
       if (!del) return;
       if (!confirm('Удалить ваш комментарий?')) return;
@@ -1590,6 +1595,60 @@
 
     return { load, loadCounts };
   })();
+
+  /* ---------- 17. ИЗБРАННОЕ (☆ у постов и файлов, для вошедших) ---------- */
+  const favs = (() => {
+    function paint() {
+      const on = account.isEnabled() && !!account.user();
+      const set = new Set(account.favorites());
+      $$('[data-fav]').forEach((b) => {
+        b.hidden = !on;
+        const saved = set.has(b.dataset.fav);
+        b.classList.toggle('is-on', saved);
+        b.setAttribute('aria-pressed', saved);
+        b.title = saved ? 'Убрать из сохранённого' : b.getAttribute('aria-label');
+      });
+    }
+    document.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-fav]');
+      if (!b) return;
+      e.preventDefault(); e.stopPropagation();
+      const key = b.dataset.fav;
+      const on = !account.favorites().includes(key);
+      account.setFavorites(on ? [...account.favorites(), key] : account.favorites().filter((k) => k !== key));
+      paint();
+      if (on && !reducedMotion) { b.classList.remove('is-pop'); void b.offsetWidth; b.classList.add('is-pop'); }
+      try {
+        const r = await fetch('/api/account', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fav', key, on }) });
+        const out = await r.json();
+        if (out.ok) { account.setFavorites(out.favorites); paint(); }
+      } catch (err) { /* оставим как есть */ }
+    }, true);
+    return { paint };
+  })();
+
+  /* ---------- 18. ОТЗЫВЫ (публикуются после проверки в боте модерации) ---------- */
+  async function loadReviews() {
+    const box = $('#reviews');
+    if (!box) return;
+    try {
+      const out = await (await fetch('/api/comments?reviews=1', { cache: 'no-store' })).json();
+      const list = (out && out.reviews) || [];
+      if (!list.length) return;
+      const avg = list.reduce((s, r) => s + r.rating, 0) / list.length;
+      $('#reviewsAvg').textContent = `${avg.toFixed(1).replace('.', ',')} ★ · ${list.length}`;
+      $('#reviewsGrid').innerHTML = list.map((r) => `
+        <article class="card review">
+          <div class="review__stars" aria-label="Оценка ${r.rating} из 5">${'★'.repeat(r.rating)}<span>${'★'.repeat(5 - r.rating)}</span></div>
+          <p class="review__text">${esc(r.text).replace(/\n/g, '<br>')}</p>
+          <div class="review__who">
+            ${r.picture ? `<img src="${esc(r.picture)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : `<span class="review__ava">${esc((r.name || '?')[0].toUpperCase())}</span>`}
+            <div><b>${esc(r.name || 'Клиент')}</b><span>${esc([r.service, new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' }).format(new Date(r.ts))].filter(Boolean).join(' · '))}</span></div>
+          </div>
+        </article>`).join('');
+      box.hidden = false;
+    } catch (e) { /* нет сервера — блок скрыт */ }
+  }
 
   /* ---------- ЗАПУСК ---------- */
   // Сначала то, что не зависит от контента
@@ -1612,6 +1671,7 @@
     renderChips();
     likes.load();
     comments.loadCounts();
+    loadReviews();
     applyFilters();
     if (!ok) {
       $$('.empty').forEach((el) => {

@@ -33,7 +33,7 @@ async function clientCancel(b, via) {
   if (isPast(b)) return { error: 'Эта запись уже прошла.', code: 400 };
   await lib.cancel(b.id, 'client');
   await tellOwner(`❌ <b>Клиент сам отменил запись</b> (${lib.esc(via)})`, b, 'cancelled');
-  await mail.sendToClient('cancelledByClient', b);
+  await mail.notifyClient('cancelledByClient', b);
   return { ok: true };
 }
 
@@ -54,7 +54,7 @@ async function clientMove(b, date, time, via) {
   await lib.cancel(b.id);
   await lib.track(['move']).catch(() => {});
   await tellOwner(`🔁 <b>Клиент перенёс запись</b> (${lib.esc(via)})\nБыло: ${lib.esc(lib.humanDate(b.date, true))}, ${lib.esc(b.time)}`, nb);
-  await mail.sendToClient('moved', nb);
+  await mail.notifyClient('moved', nb);
   return { ok: true, booking: nb };
 }
 
@@ -84,8 +84,38 @@ async function clientRebook(cx, date, time, via) {
   await lib.forgetCancelled(cx);
   await lib.track(['rebook']).catch(() => {});
   await tellOwner(`🔁 <b>Клиент выбрал новое время после вашей отмены</b> (${lib.esc(via)})\nБыло: ${lib.esc(lib.humanDate(cx.date, true))}, ${lib.esc(cx.time)}`, nb);
-  await mail.sendToClient('rebooked', nb);
+  await mail.notifyClient('rebooked', nb);
   return { ok: true, booking: nb };
 }
 
-module.exports = { isPast, clientView, cancelledView, clientCancel, clientMove, clientRebook, checkSlot };
+// Новая запись (из анкеты на сайте или из личного кабинета):
+// занять время → сообщить вам в бот (если не вышло — освободить время) → профиль → письмо клиенту
+async function createBooking(data, { title } = {}) {
+  let booking = { ...data, status: 'new' };
+  if (lib.hasDb()) {
+    try {
+      const reserved = await lib.reserve(data);
+      if (!reserved) return { error: 'Это время уже заняли. Выберите другое.', code: 409, taken: true };
+      booking = reserved;
+    } catch (e) {
+      console.error('booking: ошибка базы', e.message);
+      return { error: 'Не получилось отправить заявку.', code: 500 };
+    }
+  }
+  try {
+    await lib.tg('sendMessage', {
+      chat_id: lib.OWNER(), parse_mode: 'HTML', disable_web_page_preview: true,
+      text: (title ? `${title}\n\n` : '') + lib.bookingText(booking),
+      reply_markup: lib.bookingKeyboard(booking)
+    });
+  } catch (e) {
+    console.error('booking:', e.message);
+    if (booking.id) await lib.cancel(booking.id).catch(() => {});
+    return { error: 'Не получилось отправить заявку.', code: 502 };
+  }
+  if (lib.hasDb()) await lib.saveProfile(booking.email, booking).catch(() => {});
+  if (booking.id) await mail.notifyClient('received', booking);
+  return { ok: true, booking };
+}
+
+module.exports = { isPast, clientView, cancelledView, clientCancel, clientMove, clientRebook, checkSlot, createBooking };

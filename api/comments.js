@@ -131,6 +131,20 @@ async function onTelegram(update) {
     const answer = (text) => mod('answerCallbackQuery', { callback_query_id: q.id, text }).catch(() => {});
     if (String(q.from.id) !== lib.OWNER()) return answer('Нет доступа');
     const [action, postId, id] = String(q.data || '').split(':');
+    // Отзывы: опубликовать / удалить
+    if (action === 'rvok' || action === 'rvdel') {
+      const rv = await lib.getReview(postId);
+      const msg = { chat_id: q.message.chat.id, message_id: q.message.message_id };
+      if (!rv) { await answer('Отзыв уже удалён'); return mod('editMessageReplyMarkup', { ...msg, reply_markup: { inline_keyboard: [] } }).catch(() => {}); }
+      const stars = `${'★'.repeat(rv.rating)}${'☆'.repeat(5 - rv.rating)}`;
+      if (action === 'rvok') {
+        rv.status = 'published'; await lib.saveReview(rv); await answer('Опубликован на сайте');
+        return mod('editMessageText', { ...msg, parse_mode: 'HTML', text: `✅ <b>Отзыв опубликован</b> · ${stars}\n<b>${lib.esc(rv.name)}</b>\n\n${lib.esc(rv.text)}`,
+          reply_markup: { inline_keyboard: [[{ text: '🗑 Убрать с сайта', callback_data: `rvdel:${rv.id}` }]] } }).catch(() => {});
+      }
+      await lib.deleteReview(rv); await answer('Отзыв удалён');
+      return mod('editMessageText', { ...msg, parse_mode: 'HTML', text: `🗑 <s>Отзыв</s> удалён · ${stars}\n<b>${lib.esc(rv.name)}</b>\n\n<s>${lib.esc(rv.text)}</s>` }).catch(() => {});
+    }
     if (action !== 'cdel') return answer();
     const c = await removeComment(postId, id);
     if (!c) {
@@ -174,6 +188,11 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true, webhook: `https://${host}/api/comments`, app: `https://${host}/tg/comments/` });
       }
       if (!enabled()) return res.status(200).json({ ok: true, enabled: false, comments: [], counts: {} });
+      // Опубликованные отзывы для сайта (без почты)
+      if (q.reviews !== undefined) {
+        const list = await lib.listReviews({ onlyPublished: true, limit: 30 });
+        return res.status(200).json({ ok: true, enabled: true, reviews: list.map((r) => ({ name: r.name, picture: r.picture, rating: r.rating, text: r.text, service: r.service, ts: r.ts })) });
+      }
       if (q.counts !== undefined) {
         const ids = String(q.counts).split(',').filter((id) => POST_RE.test(id)).slice(0, 50);
         const lens = ids.length ? await lib.pipeline(ids.map((id) => ['HLEN', `cm:${id}`])) : [];

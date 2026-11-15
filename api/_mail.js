@@ -91,6 +91,13 @@ const TEMPLATES = {
     intro: `Завтра, ${lib.esc(lib.humanDate(b.date))}, в <b>${lib.esc(b.time)}</b>.`,
     button: { text: 'Не смогу — перенести или отменить', url: lib.manageUrl(b) }
   }),
+  // за час до записи
+  soon: (b) => ({
+    subject: `Скоро запись: сегодня в ${b.time}`,
+    title: 'Скоро ваша запись ⏰',
+    intro: `Сегодня в <b>${lib.esc(b.time)}</b> — примерно через час. До встречи!`,
+    button: { text: 'Не успеваю — перенести', url: lib.manageUrl(b) }
+  }),
   // клиент перенёс сам
   moved: (b) => ({
     subject: `Запись перенесена: ${lib.humanDate(b.date, true)}, ${b.time}`,
@@ -145,4 +152,32 @@ async function sendToClient(kind, b) {
   }
 }
 
-module.exports = { hasMail, sendToClient, icsFor, layout, TEMPLATES };
+// То же сообщение — в Telegram клиента, если он подключил его в кабинете
+async function telegramToClient(kind, b) {
+  if (!b || !b.email || !TEMPLATES[kind] || !lib.hasDb() || !lib.BOT()) return false;
+  try {
+    const link = await lib.telegramOf(b.email);
+    if (!link) return false;
+    const t = TEMPLATES[kind](b);
+    const when = `${lib.humanDate(b.date)}, ${b.time}`;
+    await lib.tg('sendMessage', {
+      chat_id: link.chatId, parse_mode: 'HTML', disable_web_page_preview: true,
+      text: `<b>${lib.esc(t.title)}</b>\n${t.intro}\n\n${b.service ? `${lib.esc(b.service)}\n` : ''}🗓 <b>${lib.esc(when)}</b>`,
+      reply_markup: t.button ? { inline_keyboard: [[{ text: t.button.text, url: t.button.url }]] } : undefined
+    });
+    return true;
+  } catch (e) {
+    console.error(`telegram(${kind}):`, e.message);
+    return false;
+  }
+}
+
+// Уведомить клиента: письмо + Telegram (если подключён). onlyOne — достаточно одного канала
+async function notifyClient(kind, b, { onlyOne = false } = {}) {
+  const viaTg = await telegramToClient(kind, b);
+  if (onlyOne && viaTg) return true;
+  const viaMail = await sendToClient(kind, b);
+  return viaTg || viaMail;
+}
+
+module.exports = { hasMail, sendToClient, notifyClient, telegramToClient, icsFor, layout, TEMPLATES };

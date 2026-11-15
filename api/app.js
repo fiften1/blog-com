@@ -77,7 +77,7 @@ module.exports = async function handler(req, res) {
       case 'cancel': {
         const b = await lib.cancel(clean(body.id, 20), 'owner');
         if (!b) return res.status(404).json({ ok: false, error: 'Запись уже отменена.' });
-        if (b.time !== lib.WHOLE_DAY) await mail.sendToClient('cancelledByOwner', b);
+        if (b.time !== lib.WHOLE_DAY) await mail.notifyClient('cancelledByOwner', b);
         return res.status(200).json({ ok: true, booking: view(b) });
       }
 
@@ -86,7 +86,7 @@ module.exports = async function handler(req, res) {
         if (!b) return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
         b.status = 'confirmed';
         await lib.saveBooking(b);
-        await mail.sendToClient('confirmed', b);
+        await mail.notifyClient('confirmed', b);
         return res.status(200).json({ ok: true, booking: view(b) });
       }
 
