@@ -443,8 +443,44 @@ h1, h2, h3 {
 .read-more svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; transition: transform .3s var(--ease); }
 .post-card:hover .read-more { color: var(--accent); }
 
-/* Низ карточки: «Читать» слева, лайк справа */
+/* Низ карточки: «Читать» слева, счётчик комментариев и лайк справа */
 .post-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.post-card__stats { display: inline-flex; align-items: center; gap: 10px; }
+.ccount { display: inline-flex; align-items: center; gap: 5px; font: 500 .85rem var(--font-body); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ccount[hidden] { display: none; }
+.ccount svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+
+/* ---------- Комментарии в открытом посте ---------- */
+.comments { margin-top: 36px; padding-top: 26px; border-top: 1px solid var(--line); }
+.comments[hidden] { display: none; }
+.comments__title { font-size: 1.15rem; margin-bottom: 16px; }
+.comments__empty { margin: 0 0 18px; color: var(--text-muted); font-size: .95rem; }
+.cmts { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 16px; }
+.cmt { display: flex; gap: 12px; align-items: flex-start; }
+.cmt.is-new { animation: cmtIn .6s var(--ease); }
+@keyframes cmtIn { from { opacity: 0; transform: translateY(8px); } }
+.cmt__ava { flex: none; width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1px solid var(--line); }
+.cmt__ava--letter { display: grid; place-items: center; background: rgba(168, 85, 247, .15); color: var(--accent); font: 600 .9rem var(--font-head); }
+.cmt__body { min-width: 0; flex: 1; }
+.cmt__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: .88rem; }
+.cmt__head b { color: var(--heading); font-weight: 600; }
+.cmt__head span { color: var(--text-faint); font-size: .8rem; }
+.cmt__del { margin-left: auto; background: none; border: 0; padding: 0; font-size: .78rem; color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cmt__del:hover { color: var(--pink); }
+.cmt__text { margin: 4px 0 0; font-size: .97rem; line-height: 1.6; color: var(--text); overflow-wrap: anywhere; }
+.cform { display: flex; gap: 12px; align-items: flex-start; }
+.cform__main { flex: 1; min-width: 0; }
+.cform textarea {
+  width: 100%; min-height: 64px; resize: vertical; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--heading); font: inherit; font-size: .97rem;
+  transition: border-color .2s, box-shadow .2s;
+}
+.cform textarea:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(168, 85, 247, .1); }
+.cform__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.cform__count { font: .75rem var(--font-mono); color: var(--text-faint); }
+.cform__msg { margin: 6px 0 0; min-height: 1.2em; font-size: .85rem; color: var(--pink); }
+.cform--guest { align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px; border-radius: 12px; border: 1px dashed var(--line-strong); }
+.cform--guest p { margin: 0; color: var(--text-muted); font-size: .92rem; }
 
 /* Лайк */
 .like {

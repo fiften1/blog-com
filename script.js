@@ -175,6 +175,7 @@
     external: '<svg class="link-card__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>',
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
+    comment: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5a2.5 2.5 0 0 1-2.5 2.5H9l-5 4V6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5z"/></svg>',
     heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.5-4.6-9.3-9.2C1.4 7.8 3.4 4.5 6.8 4.5c2.1 0 3.6 1.2 5.2 3.1 1.6-1.9 3.1-3.1 5.2-3.1 3.4 0 5.4 3.3 4.1 6.6-1.8 4.6-9.3 9.2-9.3 9.2z"/></svg>',
     pdf: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
     zip: '<svg viewBox="0 0 24 24"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M1 3h22v5H1zM10 12h4"/></svg>',
@@ -217,7 +218,10 @@
           ${tagsHTML(p.tags)}
           <div class="post-card__foot">
             <span class="read-more">Читать ${ICONS.arrow}</span>
-            ${likeButton(p)}
+            <span class="post-card__stats">
+              <span class="ccount" data-ccount="${esc(postId(p))}" hidden>${ICONS.comment}<b></b></span>
+              ${likeButton(p)}
+            </span>
           </div>
         </div>
       </article>`).join('');
@@ -391,6 +395,7 @@
     $('#modalTitle').textContent = p.title;
     $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"') + likeButton(p);
     likes.paint();
+    comments.load(postId(p));
     $('#modalContent').innerHTML = markdown(p.body || p.excerpt || '');
 
     // Блокируем прокрутку страницы, компенсируя ширину скроллбара
@@ -1195,6 +1200,7 @@
         const out = await api({ action: 'login', credential: resp.credential });
         st.user = out.user; st.bookings = out.bookings || []; st.profile = out.profile || null;
         paintButton(); autofill(); render();
+        document.dispatchEvent(new CustomEvent('account:change'));
       } catch (e) { say(e.message, 'is-error'); }
     }
 
@@ -1296,6 +1302,7 @@
         try { await api({ action: 'logout' }); } catch (err) { /* всё равно выходим */ }
         try { google.accounts.id.disableAutoSelect(); } catch (err) { /* скрипт не загружен */ }
         st.user = null; st.bookings = [];
+        document.dispatchEvent(new CustomEvent('account:change'));
         paintButton(); render();
         return;
       }
@@ -1425,8 +1432,11 @@
       modalEl.classList.remove('is-open');
       setTimeout(() => {
         modalEl.hidden = true;
-        document.body.classList.remove('is-locked');
-        document.body.style.paddingRight = '';
+        // если под кабинетом открыт пост — прокрутку не разблокируем
+        if ($('#postModal').hidden) {
+          document.body.classList.remove('is-locked');
+          document.body.style.paddingRight = '';
+        }
         lastFocus && lastFocus.focus({ preventScroll: true });
       }, reducedMotion ? 0 : 400);
     }
@@ -1449,7 +1459,136 @@
       if (!st.user) return;
       try { const out = await api(); st.bookings = out.bookings || []; } catch (e) { /* ничего */ }
     }
-    return { init, refresh };
+    return { init, refresh, open, isEnabled: () => st.enabled };
+  })();
+
+  /* ---------- 16. КОММЕНТАРИИ К ПОСТАМ ---------- */
+  // Писать могут только вошедшие через Google. Новые комментарии приходят вам
+  // в отдельного Telegram-бота модерации с кнопкой «Удалить».
+  const comments = (() => {
+    const box = $('#modalComments');
+    if (!box) return { load() {}, loadCounts() {} };
+    let current = null;      // id открытого поста
+    let state = { enabled: false, user: null, comments: [] };
+    const plural = (n, f) => f[(n % 10 === 1 && n % 100 !== 11) ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2];
+    const when = (ts) => {
+      const diff = (Date.now() - ts) / 1000;
+      if (diff < 60) return 'только что';
+      if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;
+      return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(ts));
+    };
+    const avatar = (c) => (c.picture
+      ? `<img class="cmt__ava" src="${esc(c.picture)}" alt="" referrerpolicy="no-referrer" loading="lazy">`
+      : `<span class="cmt__ava cmt__ava--letter">${esc((c.name || '?').slice(0, 1).toUpperCase())}</span>`);
+
+    function render() {
+      if (!state.enabled) { box.hidden = true; return; }
+      box.hidden = false;
+      const n = state.comments.length;
+      const items = state.comments.map((c) => `
+        <li class="cmt" data-id="${esc(c.id)}">
+          ${avatar(c)}
+          <div class="cmt__body">
+            <div class="cmt__head"><b>${esc(c.name)}</b><span>${esc(when(c.ts))}</span>
+              ${c.mine ? '<button class="cmt__del" type="button" data-cdel>Удалить</button>' : ''}</div>
+            <p class="cmt__text">${esc(c.text).replace(/\n/g, '<br>')}</p>
+          </div>
+        </li>`).join('');
+      const form = state.user
+        ? `<form class="cform" id="cform">
+            ${avatar(state.user)}
+            <div class="cform__main">
+              <label class="visually-hidden" for="ctext">Ваш комментарий</label>
+              <textarea id="ctext" rows="2" maxlength="1000" placeholder="Написать комментарий…" required></textarea>
+              <div class="cform__foot"><span class="cform__count" id="ccount">0 / 1000</span>
+                <button class="btn btn--primary btn--sm" type="submit">Отправить</button></div>
+              <p class="cform__msg" id="cmsg"></p>
+            </div>
+          </form>`
+        : `<div class="cform cform--guest"><p>Войдите через Google, чтобы оставить комментарий.</p>
+            <button class="btn btn--ghost btn--sm" type="button" data-clogin>Войти</button></div>`;
+      box.innerHTML = `
+        <h3 class="comments__title">${n ? `${n} ${plural(n, ['комментарий', 'комментария', 'комментариев'])}` : 'Комментарии'}</h3>
+        ${n ? `<ul class="cmts">${items}</ul>` : '<p class="comments__empty">Пока никто не написал — будьте первым.</p>'}
+        ${form}`;
+    }
+
+    async function load(postId) {
+      current = postId;
+      box.hidden = true;
+      box.innerHTML = '';
+      try {
+        const r = await fetch(`/api/comments?post=${encodeURIComponent(postId)}`, { credentials: 'same-origin', cache: 'no-store' });
+        if (!r.ok) return;
+        const out = await r.json();
+        if (current !== postId) return; // успели открыть другой пост
+        state = { enabled: !!out.enabled, user: out.user, comments: out.comments || [] };
+        render();
+      } catch (e) { /* нет сервера — блок комментариев скрыт */ }
+    }
+
+    const setCount = (postId, n) => $$(`[data-ccount="${CSS.escape(postId)}"]`).forEach((el) => {
+      el.hidden = !n;
+      el.querySelector('b').textContent = n || '';
+      el.title = n ? `${n} ${plural(n, ['комментарий', 'комментария', 'комментариев'])}` : '';
+    });
+
+    async function loadCounts() {
+      const ids = [...new Set($$('[data-ccount]').map((el) => el.dataset.ccount))];
+      if (!ids.length) return;
+      try {
+        const out = await (await fetch(`/api/comments?counts=${ids.map(encodeURIComponent).join(',')}`, { cache: 'no-store' })).json();
+        if (out.enabled) Object.entries(out.counts || {}).forEach(([id, n]) => setCount(id, n));
+      } catch (e) { /* ничего */ }
+    }
+
+    const post = async (data) => {
+      const r = await fetch('/api/comments', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ post: current, ...data }) });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.ok) throw new Error(out.error || 'Не получилось. Попробуйте ещё раз.');
+      return out;
+    };
+
+    box.addEventListener('input', (e) => {
+      if (e.target.id === 'ctext') $('#ccount').textContent = `${e.target.value.length} / 1000`;
+    });
+    // Ctrl/Cmd + Enter — отправить
+    box.addEventListener('keydown', (e) => {
+      if (e.target.id === 'ctext' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('#cform').requestSubmit(); }
+    });
+    box.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const ta = $('#ctext'), btn = e.target.querySelector('button[type="submit"]'), msg = $('#cmsg');
+      if (ta.value.trim().length < 2) { msg.textContent = 'Напишите хотя бы пару слов.'; return; }
+      btn.disabled = true; msg.textContent = '';
+      try {
+        const out = await post({ action: 'add', text: ta.value });
+        state.comments.push(out.comment);
+        render();
+        setCount(current, state.comments.length);
+        const last = box.querySelector('.cmt:last-child');
+        if (last) last.classList.add('is-new');
+      } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+    });
+    box.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-clogin]')) return account.open();
+      const del = e.target.closest('[data-cdel]');
+      if (!del) return;
+      if (!confirm('Удалить ваш комментарий?')) return;
+      const id = del.closest('.cmt').dataset.id;
+      del.disabled = true;
+      try {
+        await post({ action: 'delete', id });
+        state.comments = state.comments.filter((c) => c.id !== id);
+        render();
+        setCount(current, state.comments.length);
+      } catch (err) { del.disabled = false; alert(err.message); }
+    });
+    // вошли или вышли — перезагрузить комментарии открытого поста
+    document.addEventListener('account:change', () => { if (current && !$('#postModal').hidden) load(current); });
+
+    return { load, loadCounts };
   })();
 
   /* ---------- ЗАПУСК ---------- */
@@ -1472,6 +1611,7 @@
     renderLinks();
     renderChips();
     likes.load();
+    comments.loadCounts();
     applyFilters();
     if (!ok) {
       $$('.empty').forEach((el) => {
@@ -1490,6 +1630,13 @@
     initTilt();
     initMagnetic();
     initPreloader();
+
+    // Ссылка прямо на пост: …/#post-<id> (например, кнопка «Открыть пост» из бота модерации)
+    const m = location.hash.match(/^#post-([a-z0-9_-]+)$/);
+    if (m) {
+      const i = DATA.posts.findIndex((p) => postId(p) === m[1]);
+      if (i >= 0) setTimeout(() => openPost(i), reducedMotion ? 0 : 900);
+    }
   });
 
   $('#year').textContent = new Date().getFullYear();

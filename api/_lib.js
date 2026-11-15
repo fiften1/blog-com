@@ -144,6 +144,21 @@ async function cancelledFor(email) {
   return raws.filter(Boolean).map((r) => JSON.parse(r));
 }
 
+/* ---------- Посты сайта (id → заголовок), кэш на минуту ---------- */
+let postsCache = { at: 0, map: null };
+async function sitePosts() {
+  if (postsCache.map && Date.now() - postsCache.at < 60e3) return postsCache.map;
+  const host = siteHost();
+  if (!host) return null;
+  try {
+    const data = await (await fetch(`https://${host}/content/posts.json`, { cache: 'no-store' })).json();
+    postsCache = { at: Date.now(), map: new Map((data.posts || []).filter((p) => p.id).map((p) => [p.id, p.title || ''])) };
+  } catch (e) {
+    return postsCache.map; // при ошибке — старый список (или null = не проверяем)
+  }
+  return postsCache.map;
+}
+
 /* ---------- Профиль клиента: имя и телефон из последней заявки (для автозаполнения) ---------- */
 async function saveProfile(email, { name, phone }) {
   if (!email) return;
@@ -343,5 +358,5 @@ module.exports = {
   WHOLE_DAY, todayISO, nowMinutes, addDays, siteSlots, setPending, getPending, clearPending,
   CLOSE_TYPES, closeType, dayInfo, rangeBookings, appUrl, verifyInitData, siteServices,
   track, getStats, siteHost, manageToken, manageUrl, checkManage,
-  getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile
+  getCancelled, forgetCancelled, cancelledFor, saveProfile, getProfile, sitePosts
 };

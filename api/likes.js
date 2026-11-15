@@ -18,21 +18,6 @@ function visitor(req) {
   return crypto.createHash('sha256').update(`like:${lib.BOT() || 'salt'}:${ip}:${ua}`).digest('hex').slice(0, 20);
 }
 
-// Список существующих постов (чтобы нельзя было «лайкать» что угодно); кэш на минуту
-let postsCache = { at: 0, ids: null };
-async function knownIds() {
-  if (postsCache.ids && Date.now() - postsCache.at < 60e3) return postsCache.ids;
-  const host = lib.siteHost();
-  if (!host) return null;
-  try {
-    const data = await (await fetch(`https://${host}/content/posts.json`, { cache: 'no-store' })).json();
-    postsCache = { at: Date.now(), ids: new Set((data.posts || []).map((p) => p.id).filter(Boolean)) };
-  } catch (e) {
-    return postsCache.ids; // при ошибке — старый список (или null = не проверяем)
-  }
-  return postsCache.ids;
-}
-
 // Защита от накрутки кликами: не больше 40 действий за 10 минут с одного посетителя
 const hits = new Map();
 function tooMany(key) {
@@ -63,7 +48,7 @@ module.exports = async function handler(req, res) {
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
       const id = String(body.id || '');
       if (!ID_RE.test(id)) return res.status(400).json({ ok: false });
-      const known = await knownIds();
+      const known = await lib.sitePosts();
       if (known && !known.has(id)) return res.status(404).json({ ok: false });
       if (tooMany(me)) return res.status(429).json({ ok: false, error: 'Слишком часто. Попробуйте чуть позже.' });
 
