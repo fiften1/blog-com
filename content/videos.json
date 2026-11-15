@@ -1,43 +1,12 @@
 {
   "videos": [
     {
-      "title": "Big Buck Bunny — открытый фильм Blender",
-      "youtube": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
-      "date": "2026-10-30",
-      "description": "Классика открытой 3D-анимации. Отличный пример того, что можно сделать бесплатными инструментами.",
+      "title": "Jutes - Kill or be Killed (MAPHRA Vocal Cover)",
+      "youtube": "https://www.youtube.com/watch?v=sZALWV6Af_A&list=RDMMr6L-GUOAhGo&index=6",
+      "date": "2026-11-15",
+      "description": "песня",
       "tags": [
-        "творчество",
-        "3d"
-      ]
-    },
-    {
-      "title": "Sintel — короткометражка",
-      "youtube": "https://www.youtube.com/watch?v=eRsGyueVLvQ",
-      "date": "2026-10-10",
-      "description": "Атмосферная история и красивый свет — смотрю ради цветовых решений.",
-      "tags": [
-        "творчество",
-        "кино"
-      ]
-    },
-    {
-      "title": "Tears of Steel — sci-fi и VFX",
-      "youtube": "https://www.youtube.com/watch?v=R6MlUcmOul8",
-      "date": "2026-09-18",
-      "description": "Эксперимент с визуальными эффектами и живыми актёрами. Технологично и местами по-неоновому.",
-      "tags": [
-        "технологии",
-        "кино"
-      ]
-    },
-    {
-      "title": "Spring — Blender Open Movie",
-      "youtube": "https://www.youtube.com/watch?v=WhWc3b3KhnY",
-      "date": "2026-08-29",
-      "description": "Нежная сказка с потрясающей стилизацией. Включаю, когда нужно вдохновение.",
-      "tags": [
-        "творчество",
-        "3d"
+        "песня"
       ]
     }
   ]
