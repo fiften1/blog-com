@@ -69,7 +69,7 @@ async function notifyNew(c, title) {
       reply_markup: { inline_keyboard: [[
         { text: '🗑 Удалить', callback_data: `cdel:${c.postId}:${c.id}` },
         { text: '↗️ Открыть пост', url: postUrl(c.postId) }
-      ]] }
+      ], [{ text: '📋 Все комментарии', web_app: { url: `https://${lib.siteHost()}/tg/comments/` } }]] }
     });
     return msg && msg.message_id;
   } catch (e) {
@@ -93,6 +93,37 @@ async function removeComment(postId, id) {
   return JSON.parse(raw);
 }
 
+// ---------- Приложение «Комментарии» (для владельца) ----------
+async function adminApi(body, res) {
+  if (!lib.verifyInitData(body.initData, 24 * 3600, MOD())) return res.status(401).json({ ok: false, error: 'Откройте приложение из бота модерации.' });
+  if (!lib.hasDb()) return res.status(503).json({ ok: false, error: 'База не подключена.' });
+  const posts = (await lib.sitePosts()) || new Map();
+
+  if (body.action === 'list') {
+    const all = [];
+    for (const [postId, title] of posts) {
+      (await list(postId)).forEach((c) => all.push({
+        id: c.id, postId, postTitle: title, name: c.name, email: c.email, picture: c.picture, text: c.text, ts: c.ts
+      }));
+    }
+    all.sort((a, b) => b.ts - a.ts);
+    return res.status(200).json({
+      ok: true, comments: all, site: `https://${lib.siteHost()}`,
+      posts: [...posts].map(([id, title]) => ({ id, title }))
+    });
+  }
+
+  if (body.action === 'delete') {
+    const postId = String(body.post || ''), id = String(body.id || '');
+    if (!POST_RE.test(postId)) return res.status(400).json({ ok: false });
+    const c = await removeComment(postId, id);
+    if (!c) return res.status(404).json({ ok: false, error: 'Комментарий уже удалён.' });
+    await markDeleted(c, 'вами (в приложении)');
+    return res.status(200).json({ ok: true });
+  }
+  return res.status(400).json({ ok: false, error: 'Неизвестное действие.' });
+}
+
 // ---------- Вебхук бота модерации ----------
 async function onTelegram(update) {
   const q = update.callback_query;
@@ -111,7 +142,11 @@ async function onTelegram(update) {
   }
   const m = update.message;
   if (m && String(m.from && m.from.id) === lib.OWNER()) {
-    return mod('sendMessage', { chat_id: m.chat.id, text: 'Сюда приходят новые комментарии с сайта. Под каждым есть кнопка «🗑 Удалить».' });
+    return mod('sendMessage', {
+      chat_id: m.chat.id,
+      text: 'Сюда приходят новые комментарии с сайта. Под каждым есть кнопка «🗑 Удалить».\n\nВсе комментарии по датам — в приложении «Комментарии» (кнопка слева от поля ввода).',
+      reply_markup: { inline_keyboard: [[{ text: '📋 Все комментарии', web_app: { url: `https://${lib.siteHost()}/tg/comments/` } }]] }
+    });
   }
 }
 
@@ -134,7 +169,9 @@ module.exports = async function handler(req, res) {
         if (!MOD()) return res.status(503).json({ ok: false, error: 'TELEGRAM_MOD_BOT_TOKEN не задан' });
         const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || req.headers.host;
         await mod('setWebhook', { url: `https://${host}/api/comments`, secret_token: modSecret(), allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
-        return res.status(200).json({ ok: true, webhook: `https://${host}/api/comments` });
+        // Кнопка «Комментарии» слева от поля ввода — открывает приложение
+        await mod('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Комментарии', web_app: { url: `https://${host}/tg/comments/` } } });
+        return res.status(200).json({ ok: true, webhook: `https://${host}/api/comments`, app: `https://${host}/tg/comments/` });
       }
       if (!enabled()) return res.status(200).json({ ok: true, enabled: false, comments: [], counts: {} });
       if (q.counts !== undefined) {
@@ -155,6 +192,12 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method !== 'POST') return res.status(405).json({ ok: false });
+
+    // Приложение «Комментарии» в боте модерации: вход по подписи Telegram, только владелец
+    let body0 = req.body || {};
+    if (typeof body0 === 'string') { try { body0 = JSON.parse(body0); } catch (e) { body0 = {}; } }
+    if (body0.initData !== undefined) return await adminApi(body0, res);
+
     if (!enabled()) return res.status(503).json({ ok: false, error: 'Комментарии пока выключены.' });
     if (!sameOrigin(req)) return res.status(403).json({ ok: false });
     const me = readSession(req);

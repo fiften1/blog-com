@@ -242,14 +242,15 @@ const appUrl = () => {
 
 // Проверка, что запрос из Mini App пришёл от вас: подпись initData от Telegram
 // (алгоритм из документации Telegram: HMAC-SHA256 с ключом от токена бота)
-function verifyInitData(initData, maxAgeSec = 24 * 3600) {
-  if (!initData || typeof initData !== 'string' || !BOT()) return null;
+// token — какой бот открыл приложение (по умолчанию бот заявок; для «Комментариев» — бот модерации)
+function verifyInitData(initData, maxAgeSec = 24 * 3600, token = BOT()) {
+  if (!initData || typeof initData !== 'string' || !token) return null;
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
   if (!hash) return null;
   params.delete('hash');
   const check = [...params.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('\n');
-  const secret = crypto.createHmac('sha256', 'WebAppData').update(BOT()).digest();
+  const secret = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
   const calc = crypto.createHmac('sha256', secret).update(check).digest('hex');
   if (calc.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(calc), Buffer.from(hash))) return null;
   const age = Date.now() / 1000 - Number(params.get('auth_date') || 0);
