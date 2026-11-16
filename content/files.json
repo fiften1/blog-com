@@ -1,16 +1,6 @@
 {
   "files": [
     {
-      "title": "Шпаргалка по современному CSS",
-      "file": "files/css-cheatsheet.pdf",
-      "date": "2026-10-18",
-      "description": "Переменные, glassmorphism, градиентный текст, grid и clamp().",
-      "tags": [
-        "код",
-        "технологии"
-      ]
-    },
-    {
       "title": "Стартовый шаблон Neon Starter",
       "file": "files/neon-starter.zip",
       "date": "2026-10-05",
