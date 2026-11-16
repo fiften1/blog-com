@@ -1,16 +1,6 @@
 {
   "links": [
     {
-      "title": "Unsplash",
-      "url": "https://unsplash.com/",
-      "category": "Ресурсы",
-      "description": "Бесплатные фото высокого качества — отсюда обложки блога.",
-      "tags": [
-        "фото",
-        "творчество"
-      ]
-    },
-    {
       "title": "Excalidraw",
       "url": "https://excalidraw.com/",
       "category": "Инструменты",
