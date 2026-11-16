@@ -372,7 +372,7 @@
       </div>
       <div class="box"><h3>Понравилось · ${liked.length}</h3>
         ${liked.length ? `<div class="list">${liked.map((p) => `
-          <div class="row-item">${p.cover ? `<img class="row-item__thumb" src="${esc(/^https?:/.test(p.cover) ? p.cover : '../' + p.cover)}" alt="">` : ''}
+          <div class="row-item">${p.cover ? `<img class="row-item__thumb" src="${esc(/^https?:/.test(p.cover) ? p.cover : '../' + p.cover.replace(/^\//, '').replace(/-1600\.(webp|jpg)$/, '-800.$1'))}" loading="lazy" alt="">` : ''}
             <div class="row-item__main"><div class="row-item__title">${esc(p.title)}</div><div class="row-item__meta"><span>♥ лайк</span></div></div>
             <div class="row-item__actions"><a class="btn btn--ghost btn--sm" href="../#post-${esc(p.id)}">Открыть</a></div></div>`).join('')}</div>`
           : '<p class="small" style="color:var(--text-muted);margin:0">Лайки, поставленные после входа в кабинет, появятся здесь.</p>'}

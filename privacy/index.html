@@ -14,7 +14,9 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500&display=swap" rel="stylesheet">
+  <!-- Шрифты грузятся, не задерживая показ страницы (пока грузятся — системный шрифт) -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500&display=swap"></noscript>
   <style>
     :root { --accent: #a855f7; --bg: #0a0a12; --text: #d9d9e3; --muted: #8a8a9c; --heading: #f5f5f8; --line: rgba(255,255,255,.09); }
     :root[data-theme="light"] { --accent: #7c3aed; --bg: #f4f1fb; --text: #2a2a33; --muted: #6b6b78; --heading: #0f0f14; --line: rgba(76,58,140,.14); }

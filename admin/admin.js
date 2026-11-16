@@ -178,32 +178,41 @@
     return { base, ext };
   };
 
-  // Большие фото уменьшаем до 1920 px (JPEG) — сайт грузится быстрее
-  async function shrinkImage(file) {
-    if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) || file.size < 600 * 1024) return null;
+  // Фото для сайта: две версии — 800 px (карточки, телефоны) и 1600 px (открытый пост, большие экраны).
+  // Формат WebP (если браузер не умеет — JPEG). Сайт сам выбирает нужную версию под экран.
+  async function encodeImage(bmp, max, q) {
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    let blob = await new Promise((res) => c.toBlob(res, 'image/webp', q));
+    if (!blob || blob.type !== 'image/webp') blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', q + 0.08));
+    return blob;
+  }
+  async function photoVersions(file) {
+    if (!/^image\/(jpeg|png|webp|heic|heif|avif)$/.test(file.type)) return null; // svg, gif — как есть
     try {
-      const bmp = await createImageBitmap(file);
-      const k = Math.min(1, 1920 / Math.max(bmp.width, bmp.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-      const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.86));
-      return blob && blob.size < file.size ? blob : null;
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const big = await encodeImage(bmp, 1600, 0.7);
+      const small = await encodeImage(bmp, 800, 0.72);
+      if (!big || !small) return null;
+      return { big, small, ext: big.type === 'image/webp' ? 'webp' : 'jpg' };
     } catch (e) { return null; }
   }
 
   async function upload(file, folder) {
-    const small = folder === 'images' ? await shrinkImage(file) : null;
-    const blob = small || file;
+    const v = folder === 'images' ? await photoVersions(file) : null;
+    const blob = v ? v.big : file;
     if (blob.size > 25 * 1024 * 1024) throw new Error('Файл больше 25 МБ — GitHub его не примет.');
-    let { base, ext } = slug(file.name);
-    if (small) ext = 'jpg';
+    const { base, ext } = slug(file.name);
     const b64 = bytesToB64(new Uint8Array(await blob.arrayBuffer()));
+    const b64small = v ? bytesToB64(new Uint8Array(await v.small.arrayBuffer())) : null;
     for (let i = 0; i < 5; i++) {
-      const name = `${base}${i ? '-' + Math.random().toString(36).slice(2, 6) : ''}${ext ? '.' + ext : ''}`;
-      const path = `${folder}/${name}`;
+      const stem = `${base}${i ? '-' + Math.random().toString(36).slice(2, 6) : ''}`;
+      const path = v ? `${folder}/${stem}-1600.${v.ext}` : `${folder}/${stem}${ext ? '.' + ext : ''}`;
       try {
         await putFile(path, b64, `Админка: загружен ${path}`);
+        if (v) await putFile(`${folder}/${stem}-800.${v.ext}`, b64small, `Админка: загружен ${folder}/${stem}-800.${v.ext}`);
         return path;
       } catch (e) {
         if (e.status === 422) continue; // такое имя уже есть — пробуем другое

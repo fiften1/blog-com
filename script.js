@@ -205,13 +205,30 @@
   const favButton = (key, label) => `<button class="fav" type="button" data-fav="${esc(key)}" aria-pressed="false" aria-label="${label}" title="${label}" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>`;
   const likeButton = (p) => `<button class="like" type="button" data-like="${esc(postId(p))}" aria-pressed="false" aria-label="Нравится" hidden>${ICONS.heart}<span class="like__count"></span></button>`;
 
+  /* ---------- Картинки под размер экрана ----------
+     Админка сохраняет фото в двух размерах: имя-800.webp и имя-1600.webp.
+     Телефон и карточки берут маленькую версию, большой экран и открытый пост — большую.
+     Для фото с Unsplash просим нужную ширину у самого Unsplash. */
+  const imgSrc = (src) => String(src || '').replace(/^\/(?=images\/)/, ''); // «/images/…» → «images/…» (работает и на GitHub Pages)
+  function imgSet(src, small = true) {
+    const s = imgSrc(src);
+    const m = s.match(/^(.*)-(800|1600)\.(webp|jpg)$/);
+    if (m) return { src: `${m[1]}-${small ? 800 : 1600}.${m[3]}`, srcset: `${m[1]}-800.${m[3]} 800w, ${m[1]}-1600.${m[3]} 1600w` };
+    if (/^https:\/\/images\.unsplash\.com\//.test(s)) {
+      const u = (w) => { try { const x = new URL(s); x.searchParams.set('w', w); x.searchParams.set('q', '70'); x.searchParams.set('auto', 'format'); return x.href; } catch (e) { return s; } };
+      return { src: u(small ? 800 : 1600), srcset: `${u(800)} 800w, ${u(1600)} 1600w` };
+    }
+    return { src: s, srcset: '' };
+  }
+  const imgAttrs = (src, sizes) => { const i = imgSet(src); return `src="${esc(i.src)}"${i.srcset ? ` srcset="${esc(i.srcset)}" sizes="${sizes}"` : ''}`; };
+
   /* ---------- 2. РЕНДЕР КАРТОЧЕК ---------- */
   function renderPosts() {
     $('#postsGrid').innerHTML = DATA.posts.map((p, i) => `
       <article class="card post-card tilt reveal" ${dataAttrs(p, p.body || '')}>
         <button class="post-card__btn" type="button" data-post="${i}" aria-label="Читать пост: ${esc(p.title)}"></button>
         <div class="card__media">
-          <img src="${esc(p.cover)}" alt="${esc(p.alt || p.title)}" loading="lazy" decoding="async" width="900" height="560">
+          <img ${imgAttrs(p.cover, '(max-width: 760px) 92vw, 380px')} alt="${esc(p.alt || p.title)}" loading="lazy" decoding="async" width="900" height="560">
         </div>
         <div class="card__body">
           <div class="meta"><time datetime="${esc(p.date)}">${formatDate(p.date)}</time></div>
@@ -416,7 +433,10 @@
     lastFocus = document.activeElement;
 
     const cover = $('#modalCover');
-    cover.src = p.cover; cover.alt = p.alt || p.title;
+    const ci = imgSet(p.cover, false);
+    cover.removeAttribute('srcset');
+    if (ci.srcset) { cover.srcset = ci.srcset; cover.sizes = '(max-width: 900px) 100vw, 860px'; }
+    cover.src = ci.src; cover.alt = p.alt || p.title;
     $('#modalTitle').textContent = p.title;
     $('#modalMeta').innerHTML = `<time datetime="${esc(p.date)}">${formatDate(p.date)}</time>` + tagsHTML(p.tags).replace('class="tags"', 'class="tags" style="margin:0;padding:0"') + favButton(`post:${postId(p)}`, 'Сохранить пост') + likeButton(p);
     favs.paint();
@@ -608,16 +628,15 @@
     const hide = () => {
       if (done) return;
       done = true;
-      const wait = Math.max(0, 700 - (performance.now() - start)); // логотип успеет «вспыхнуть»
+      const wait = Math.max(0, 250 - (performance.now() - start)); // коротко «вспыхнуть» и сразу показать сайт
       setTimeout(() => {
         pre.classList.add('is-hidden');
         typewriter();
         setTimeout(() => pre.remove(), 700);
       }, reducedMotion ? 0 : wait);
     };
-    if (document.readyState === 'complete') hide();
-    else addEventListener('load', hide);
-    setTimeout(hide, 3000); // страховка, если что-то грузится слишком долго
+    // не ждём загрузки всех картинок и шрифтов — первый экран показываем сразу
+    hide();
   }
 
   /* ---------- 10. ЧАСТИЦЫ В HERO ---------- */
@@ -1718,6 +1737,10 @@
   initParallax();
 
   // Затем загружаем контент из content/*.json и строим карточки
+  // Первый экран — сразу, не дожидаясь content/*.json (быстрее «первая отрисовка» на телефоне)
+  initPreloader();
+  $$('#hero .reveal').forEach((el) => el.classList.add('is-visible'));
+
   loadContent().then((ok) => {
     applySite(DATA.site);
     initBooking(DATA.site);
@@ -1747,7 +1770,6 @@
     initReveal();
     initTilt();
     initMagnetic();
-    initPreloader();
 
     // Ссылка на раздел (…/#booking): браузер прокручивает до того, как посты и файлы отрисованы,
     // и раздел «уезжает» вниз — докручиваем ещё раз, когда всё на месте
