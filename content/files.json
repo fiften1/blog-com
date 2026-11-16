@@ -1,15 +1,6 @@
 {
   "files": [
     {
-      "title": "Стартовый шаблон Neon Starter",
-      "file": "files/neon-starter.zip",
-      "date": "2026-10-05",
-      "description": "Минимальная HTML-страница с неоновым заголовком — основа для экспериментов.",
-      "tags": [
-        "код"
-      ]
-    },
-    {
       "title": "Блокнот идей",
       "file": "files/ideas-notebook.txt",
       "date": "2026-09-02",
