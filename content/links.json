@@ -1,16 +1,6 @@
 {
   "links": [
     {
-      "title": "Excalidraw",
-      "url": "https://excalidraw.com/",
-      "category": "Инструменты",
-      "description": "Рисованные схемы и наброски прямо в браузере.",
-      "tags": [
-        "инструменты",
-        "продуктивность"
-      ]
-    },
-    {
       "title": "GitHub Pages",
       "url": "https://pages.github.com/",
       "category": "Хостинг",
