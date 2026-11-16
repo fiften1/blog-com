@@ -69,6 +69,13 @@ module.exports = async function handler(req, res) {
 
   const { data, error } = validate(body);
   if (error) return res.status(400).json({ ok: false, error });
+  // только настоящие свободные слоты: не в прошлом, не на выходной, из списка времени на сайте
+  const slotErr = await ops.checkSlot(data.date, data.time);
+  if (slotErr) return res.status(400).json({ ok: false, error: slotErr });
+  // общий лимит (на все копии функции): с одного IP и на одну почту
+  if (!(await lib.rateOk(`bk:${ip}`, 10, 3600)) || !(await lib.rateOk(`mail:${data.email.toLowerCase()}`, 10, 86400))) {
+    return res.status(429).json({ ok: false, error: 'Слишком много заявок подряд. Попробуйте через несколько минут.' });
+  }
 
   if (!lib.BOT() || !lib.OWNER()) {
     console.error('booking: TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID не заданы');

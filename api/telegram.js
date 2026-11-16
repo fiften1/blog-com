@@ -35,14 +35,14 @@ async function setup(req, res) {
     url,
     secret_token: lib.webhookSecret(),
     allowed_updates: ['message', 'callback_query'],
-    drop_pending_updates: true
+    drop_pending_updates: false
   });
   await lib.tg('setMyCommands', { commands: COMMANDS });
   // Кнопка «Записи» слева от поля ввода открывает Mini App
   await lib.tg('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Записи', web_app: { url: `https://${host}/tg/` } } });
   let client = null;
   if (lib.hasClientBot()) {
-    await lib.clientTg('setWebhook', { url, secret_token: lib.clientWebhookSecret(), allowed_updates: ['message'], drop_pending_updates: true });
+    await lib.clientTg('setWebhook', { url, secret_token: lib.clientWebhookSecret(), allowed_updates: ['message'], drop_pending_updates: false });
     await lib.clientTg('setMyCommands', { commands: [] });
     await lib.clientTg('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Кабинет', web_app: { url: `https://${host}/account/` } } });
     await lib.clientTg('setMyDescription', { description: 'Подтверждения записей и напоминания — накануне и за час до визита. Подключается в личном кабинете на сайте.' }).catch(() => {});

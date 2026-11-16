@@ -21,7 +21,7 @@ const VIA = 'в личном кабинете';
 // Проверка токена Google: Google сам подтверждает подпись и срок, мы — что токен выдан нашему сайту
 async function verifyGoogle(credential) {
   if (!credential || typeof credential !== 'string' || credential.length > 4096) return null;
-  const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+  const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, { signal: AbortSignal.timeout(8000) });
   if (!r.ok) return null;
   const t = await r.json();
   if (t.aud !== CLIENT_ID()) return null;
@@ -44,9 +44,13 @@ async function myBookings(email) {
 async function myComments(email) {
   const posts = (await lib.sitePosts()) || new Map();
   const out = [];
-  for (const [postId, title] of posts) {
-    const h = await lib.redis('HGETALL', `cm:${postId}`);
-    const vals = Array.isArray(h) ? h.filter((_, i) => i % 2) : Object.values(h || {});
+  const list = [...posts];
+  // одним пакетом, а не по запросу на каждый пост
+  const hs = list.length ? await lib.pipeline(list.map(([postId]) => ['HGETALL', `cm:${postId}`])) : [];
+  for (let i = 0; i < list.length; i++) {
+    const [postId, title] = list[i];
+    const h = hs[i];
+    const vals = Array.isArray(h) ? h.filter((_, k) => k % 2) : Object.values(h || {});
     vals.map((v) => JSON.parse(v)).filter((c) => c.email === email)
       .forEach((c) => out.push({ id: c.id, postId, postTitle: title, text: c.text, ts: c.ts }));
   }
@@ -113,13 +117,13 @@ async function myCancelled(email) {
 
 // Всё для кабинета: будущие записи (вместе с отменёнными — кто и когда отменил) и профиль
 async function myData(email) {
-  const [bookings, cancelled, profile] = await Promise.all([myBookings(email), myCancelled(email), lib.getProfile(email)]);
+  const [bookings, cancelled, profile, favorites] = await Promise.all([myBookings(email), myCancelled(email), lib.getProfile(email), lib.redis('SMEMBERS', lib.favKey(email))]);
   return {
     // сверху действующие записи (ближайшие первыми), под ними отменённые (последние отмены первыми)
     bookings: bookings.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
       .concat(cancelled.sort((a, b) => String(b.cancelledAt).localeCompare(String(a.cancelledAt)))),
     profile: profile || null,
-    favorites: (await lib.redis('SMEMBERS', lib.favKey(email))) || []
+    favorites: favorites || []
   };
 }
 
@@ -135,12 +139,15 @@ module.exports = async function handler(req, res) {
       if (req.query && req.query.ids !== undefined) {
         if (!user || !lib.hasDb()) return res.status(200).json({ ok: true, statuses: {} });
         const ids = String(req.query.ids).split(',').filter((id) => /^[a-f0-9]{6,20}$/.test(id)).slice(0, 20);
-        const raws = ids.length ? await lib.pipeline(ids.flatMap((id) => [['GET', `bk:${id}`], ['EXISTS', `cx:${id}`]])) : [];
+        const raws = ids.length ? await lib.pipeline(ids.flatMap((id) => [['GET', `bk:${id}`], ['GET', `cx:${id}`]])) : [];
         const statuses = {};
         ids.forEach((id, i) => {
           const b = raws[i * 2] ? JSON.parse(raws[i * 2]) : null;
           if (b) statuses[id] = String(b.email || '').toLowerCase() === user.email ? (b.status || 'new') : null;
-          else statuses[id] = Number(raws[i * 2 + 1]) === 1 ? 'cancelled' : null; // отменили вы — или запись исчезла
+          else { // отменили вы (только своя запись) — или запись исчезла
+            const cx = raws[i * 2 + 1] ? JSON.parse(raws[i * 2 + 1]) : null;
+            statuses[id] = cx && String(cx.email || '').toLowerCase() === user.email ? 'cancelled' : null;
+          }
         });
         return res.status(200).json({ ok: true, statuses });
       }
@@ -216,6 +223,9 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true, profile: { name, phone } });
         }
 
+        if (body.action === 'book' && !(await lib.rateOk(`acct:${email}`, 8, 3600))) {
+          return res.status(429).json({ ok: false, error: 'Слишком часто. Попробуйте чуть позже.' });
+        }
         if (body.action === 'book') {
           const prof = (await lib.getProfile(email)) || {};
           const name = prof.name || user.name || '';
@@ -250,6 +260,8 @@ module.exports = async function handler(req, res) {
           if (text.length < 5) return res.status(400).json({ ok: false, error: 'Напишите пару слов о визите.' });
           const b = (await lib.bookingsOf(email)).find((x) => x.id === String(body.bookingId || ''));
           if (!b || !ops.isPast(b)) return res.status(404).json({ ok: false, error: 'Отзыв можно оставить только о прошедшей записи.' });
+          // только о подтверждённом визите — иначе можно «записаться задним числом» и оставить отзыв
+          if (b.status !== 'confirmed') return res.status(400).json({ ok: false, error: 'Отзыв можно оставить только о подтверждённом визите.' });
           if ((await lib.redis('SISMEMBER', `urv:${email}`, b.id)) === 1) return res.status(409).json({ ok: false, error: 'Отзыв об этой записи уже есть.' });
           const prof = (await lib.getProfile(email)) || {};
           const rv = {

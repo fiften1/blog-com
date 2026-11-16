@@ -197,7 +197,11 @@
     'Эта запись уже отменена.': 'Ta wizyta jest już odwołana.', 'Это время недоступно.': 'Ten termin jest niedostępny.',
     'Это время уже заняли. Выберите другое.': 'Ten termin jest już zajęty. Wybierz inny.', 'Это время уже занято.': 'Ten termin jest już zajęty.',
     'Это время уже прошло.': 'Ten termin już minął.', 'Это и так ваше текущее время.': 'To jest już Twój obecny termin.',
-    'Метод не поддерживается.': 'Metoda nieobsługiwana.'
+    'Метод не поддерживается.': 'Metoda nieobsługiwana.',
+    'В этот день записи нет — выходной.': 'Tego dnia nie ma rezerwacji — dzień wolny.',
+    'Уже переношу — подождите пару секунд.': 'Już przekładam — poczekaj kilka sekund.',
+    'Уже записываю — подождите пару секунд.': 'Już rezerwuję — poczekaj kilka sekund.',
+    'Отзыв можно оставить только о подтверждённом визите.': 'Opinię można dodać tylko po potwierdzonej wizycie.'
   };
 
   /* ---------- Фразы с подстановками (даты, числа, имена) ---------- */

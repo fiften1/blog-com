@@ -60,8 +60,8 @@ module.exports = async function handler(req, res) {
     for (const id of due || []) {
       const b = await lib.getBooking(id);
       if (!b || b.time === lib.WHOLE_DAY || b.soonReminded || !b.email) continue;
-      b.soonReminded = true; // сначала отмечаем — даже при сбое письма не пришлём дважды
-      await lib.saveBooking(b);
+      // отметка отдельным ключом (а не перезаписью всей записи — та могла измениться: подтвердили, отменили)
+      if ((await lib.redis('SET', `rs:${id}:${b.date}:${b.time}`, '1', 'NX', 'EX', 2 * 86400)) !== 'OK') continue;
       const leftMin = Math.round((lib.slotTs(b.date, b.time) - now) / 60e3);
       if (await mail.notifyClient('soon', { ...b, leftMin }, { onlyOne: true })) sent++;
     }
@@ -76,8 +76,11 @@ module.exports = async function handler(req, res) {
   if (lock !== 'OK') return res.status(200).json({ ok: true, skipped: 'already ran today' });
 
   const result = { ok: true, summary: false, reminders: 0 };
+  // старые записи из индекса (сами записи уже удалились по сроку)
+  await lib.redis('ZREMRANGEBYSCORE', 'bookings', '-inf', lib.nowSlotTs() - 80 * 86400e3).catch(() => {});
+  let todays = [], tomorrows = [];
   try {
-    const [todays, tomorrows] = await Promise.all([lib.rangeBookings(today, today), lib.rangeBookings(tomorrow, tomorrow)]);
+    [todays, tomorrows] = await Promise.all([lib.rangeBookings(today, today), lib.rangeBookings(tomorrow, tomorrow)]);
     // Выходные по умолчанию — в сводке как «🌴 Выходной»
     for (const [d, arr] of [[today, todays], [tomorrow, tomorrows]]) {
       if (!arr.length && (await lib.weekendClosed(d))) arr.push({ date: d, time: lib.WHOLE_DAY, closeType: 'dayoff', name: '' });
@@ -91,18 +94,19 @@ module.exports = async function handler(req, res) {
       reply_markup: url ? { inline_keyboard: [[{ text: '📅 Открыть календарь', web_app: { url: `${url}#${today}` } }]] } : undefined
     });
     result.summary = true;
-
-    // 2. Напоминания клиентам о завтрашних записях
+  } catch (e) {
+    console.error('cron summary:', e.message);
+    result.ok = false;
+  }
+  // 2. Напоминания клиентам о завтрашних записях — даже если сводка не ушла
+  try {
     for (const b of tomorrows) {
       if (b.time === lib.WHOLE_DAY || !b.email || b.reminded) continue;
-      if (await mail.notifyClient('reminder', b)) {
-        b.reminded = true;
-        await lib.saveBooking(b);
-        result.reminders++;
-      }
+      if ((await lib.redis('SET', `rm:${b.id}:${b.date}:${b.time}`, '1', 'NX', 'EX', 3 * 86400)) !== 'OK') continue;
+      if (await mail.notifyClient('reminder', b)) result.reminders++;
     }
   } catch (e) {
-    console.error('cron:', e.message);
+    console.error('cron reminders:', e.message);
     result.ok = false;
   }
   return res.status(200).json(result);

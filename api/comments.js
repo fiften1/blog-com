@@ -182,7 +182,7 @@ module.exports = async function handler(req, res) {
       if (q.setup) {
         if (!MOD()) return res.status(503).json({ ok: false, error: 'TELEGRAM_MOD_BOT_TOKEN не задан' });
         const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || req.headers.host;
-        await mod('setWebhook', { url: `https://${host}/api/comments`, secret_token: modSecret(), allowed_updates: ['message', 'callback_query'], drop_pending_updates: true });
+        await mod('setWebhook', { url: `https://${host}/api/comments`, secret_token: modSecret(), allowed_updates: ['message', 'callback_query'], drop_pending_updates: false });
         // Кнопка «Комментарии» слева от поля ввода — открывает приложение
         await mod('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Комментарии', web_app: { url: `https://${host}/tg/comments/` } } });
         return res.status(200).json({ ok: true, webhook: `https://${host}/api/comments`, app: `https://${host}/tg/comments/` });

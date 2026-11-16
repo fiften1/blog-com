@@ -39,7 +39,7 @@ async function clientCancel(b, via) {
 }
 
 // Перенос клиентом: сначала занимаем новое время, потом освобождаем старое
-async function clientMove(b, date, time, via) {
+async function moveUnlocked(b, date, time, via) {
   date = String(date || '');
   time = String(time || '');
   if (isPast(b)) return { error: 'Эта запись уже прошла.', code: 400 };
@@ -48,11 +48,13 @@ async function clientMove(b, date, time, via) {
   if (isPast({ date, time })) return { error: 'Это время уже прошло.', code: 400 };
   if (date > lib.addDays(lib.todayISO(), 62)) return { error: 'Эта дата недоступна.', code: 400 };
   if (!(await lib.siteSlots()).includes(time)) return { error: 'Это время недоступно.', code: 400 };
+  if (lib.hasDb() && (await lib.weekendClosed(date))) return { error: 'В этот день записи нет — выходной.', code: 400 };
 
-  const { id: _old, status: _s, createdAt: _c, reminded: _r, tgMsg: _m, ...rest } = b;
+  const { id: _old, status: _s, createdAt: _c, reminded: _r, soonReminded: _sr, tgMsg: _m, ...rest } = b;
   const nb = await lib.reserve({ ...rest, date, time, status: 'new', movedFrom: `${b.date} ${b.time}` }, { count: false });
   if (!nb) return { error: 'Это время уже заняли. Выберите другое.', code: 409, taken: true };
-  await lib.cancel(b.id);
+  // старую запись могли отменить одновременно с переносом — тогда новую не оставляем
+  if (!(await lib.cancel(b.id))) { await lib.cancel(nb.id); return { error: 'Запись уже отменена.', code: 409 }; }
   await lib.track(['move']).catch(() => {});
   await lib.syncOwnerMessage(b, 'cancelled'); // старая заявка в чате — без кнопок
   const msg = await tellOwner(`🔁 <b>Клиент перенёс запись</b> (${lib.esc(via)})\nБыло: ${lib.esc(lib.humanDate(b.date, true))}, ${lib.esc(b.time)}`, nb);
@@ -67,8 +69,19 @@ async function checkSlot(date, time) {
   if (isPast({ date, time })) return 'Это время уже прошло.';
   if (date > lib.addDays(lib.todayISO(), 62)) return 'Эта дата недоступна.';
   if (!(await lib.siteSlots()).includes(time)) return 'Это время недоступно.';
+  if (lib.hasDb() && (await lib.weekendClosed(date))) return 'В этот день записи нет — выходной.';
   return null;
 }
+
+// Защита от двойного нажатия «Перенести»/«Записаться на это время»: одна операция на запись за раз.
+// Замок снимается сразу после операции (30 с — только на случай сбоя посередине).
+async function withLock(id, busyText, fn) {
+  if (lib.hasDb() && (await lib.redis('SET', `op:${id}`, '1', 'NX', 'EX', 30)) !== 'OK') return { error: busyText, code: 409 };
+  try { return await fn(); }
+  finally { if (lib.hasDb()) await lib.redis('DEL', `op:${id}`).catch(() => {}); }
+}
+const clientMove = (b, date, time, via) => withLock(b.id, 'Уже переношу — подождите пару секунд.', () => moveUnlocked(b, date, time, via));
+const clientRebook = (cx, date, time, via) => withLock(cx.id, 'Уже записываю — подождите пару секунд.', () => rebookUnlocked(cx, date, time, via));
 
 // Как видна клиенту запись, которую отменили вы
 const cancelledView = (b) => ({
@@ -77,17 +90,23 @@ const cancelledView = (b) => ({
 });
 
 // Повторная запись на другое время после вашей отмены — с теми же данными клиента
-async function clientRebook(cx, date, time, via) {
+async function rebookUnlocked(cx, date, time, via) {
   date = String(date || '');
   time = String(time || '');
   const err = await checkSlot(date, time);
   if (err) return { error: err, code: 400 };
-  const { id: _old, status: _s, createdAt: _c, reminded: _r, cancelledAt: _x, movedFrom: _m, ...rest } = cx;
+  // забираем отменённую запись одной командой: второй такой же запрос её уже не найдёт
+  if (lib.hasDb() && !(await lib.redis('GETDEL', `cx:${cx.id}`))) return { error: 'Запись не найдена — возможно, она уже отменена или перенесена.', code: 409 };
+  const { id: _old, status: _s, createdAt: _c, reminded: _r, soonReminded: _sr, tgMsg: _tg, cancelledAt: _x, movedFrom: _m, ...rest } = cx;
   const nb = await lib.reserve({ ...rest, date, time, status: 'new', rebookedFrom: `${cx.date} ${cx.time}` }, { count: false });
-  if (!nb) return { error: 'Это время уже заняли. Выберите другое.', code: 409, taken: true };
+  if (!nb) {
+    await lib.redis('SET', `cx:${cx.id}`, JSON.stringify(cx), 'EX', 30 * 24 * 3600).catch(() => {}); // вернуть возможность выбрать время
+    return { error: 'Это время уже заняли. Выберите другое.', code: 409, taken: true };
+  }
   await lib.forgetCancelled(cx);
   await lib.track(['rebook']).catch(() => {});
-  await tellOwner(`🔁 <b>Клиент выбрал новое время после вашей отмены</b> (${lib.esc(via)})\nБыло: ${lib.esc(lib.humanDate(cx.date, true))}, ${lib.esc(cx.time)}`, nb);
+  const msg = await tellOwner(`🔁 <b>Клиент выбрал новое время после вашей отмены</b> (${lib.esc(via)})\nБыло: ${lib.esc(lib.humanDate(cx.date, true))}, ${lib.esc(cx.time)}`, nb).catch(() => null);
+  if (msg && msg.message_id) { nb.tgMsg = msg.message_id; await lib.saveBooking(nb).catch(() => {}); }
   await mail.notifyClient('rebooked', nb);
   return { ok: true, booking: nb };
 }

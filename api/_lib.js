@@ -142,10 +142,13 @@ async function saveBooking(b) {
 // by: 'owner' | 'client' — для статистики отмен (без by — не считаем, например при откате или переносе)
 // via — откуда отменили (для журнала отмен в приложении)
 async function cancel(id, by, via) {
-  const b = await getBooking(id);
-  if (!b) return null;
+  // GETDEL — забираем запись одной командой: если две отмены пришли одновременно,
+  // вторая получит null (без двойных писем и двойного счёта в статистике)
+  const raw = await redis('GETDEL', `bk:${id}`);
+  if (!raw) return null;
+  const b = JSON.parse(raw);
   const owner = await redis('HGET', `day:${b.date}`, b.time);
-  const cmds = [['DEL', `bk:${id}`], ['ZREM', 'bookings', id]];
+  const cmds = [['ZREM', 'bookings', id]];
   if (owner === id) cmds.push(['HDEL', `day:${b.date}`, b.time]);
   // Отменили вы — запоминаем запись на 30 дней, чтобы клиент увидел извинение
   // и мог одним нажатием выбрать другое время (без повторного заполнения анкеты)
@@ -263,13 +266,28 @@ const closeType = (b) => CLOSE_TYPES[b && b.closeType] || CLOSE_TYPES.busy;
 
 // Всё о дне для сайта: занятые слоты и (если день закрыт) публичная подпись
 async function dayInfo(date) {
-  const times = await takenSlots(date);
+  // один пакет: занятые слоты + открыт ли выходной
+  const [h, wopen] = await pipeline([['HGETALL', `day:${date}`], ['EXISTS', `wopen:${date}`]]);
+  const map = {};
+  if (Array.isArray(h)) for (let i = 0; i < h.length; i += 2) map[h[i]] = h[i + 1];
+  else if (h && typeof h === 'object') Object.assign(map, h);
+  const times = Object.keys(map);
   if (!times.includes(WHOLE_DAY)) {
-    return { taken: times, closed: (await weekendClosed(date)) ? CLOSE_TYPES.dayoff.label : null };
+    return { taken: times, closed: isWeekend(date) && wopen !== 1 ? CLOSE_TYPES.dayoff.label : null };
   }
-  const id = await redis('HGET', `day:${date}`, WHOLE_DAY);
-  const b = id ? await getBooking(id) : null;
+  const b = await getBooking(map[WHOLE_DAY]);
   return { taken: times, closed: closeType(b).label };
+}
+
+/* ---------- Ограничение частоты (общее для всех копий функции, в Redis) ----------
+   true — можно; false — слишком часто. */
+async function rateOk(key, max, windowSec) {
+  if (!hasDb()) return true;
+  try {
+    const n = await redis('INCR', `rl:${key}`);
+    if (n === 1) await redis('EXPIRE', `rl:${key}`, windowSec);
+    return n <= max;
+  } catch (e) { return true; } // база недоступна — не мешаем записи
 }
 
 // Все записи в промежутке дат (для календаря в Mini App)
@@ -298,6 +316,7 @@ const OWNER = () => String(process.env.TELEGRAM_CHAT_ID || '');
 
 async function tg(method, payload) {
   const r = await fetch(`https://api.telegram.org/bot${BOT()}/${method}`, {
+    signal: AbortSignal.timeout(8000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -476,6 +495,7 @@ const CLIENT_BOT = () => process.env.TELEGRAM_CLIENT_BOT_TOKEN || BOT();
 const hasClientBot = () => !!process.env.TELEGRAM_CLIENT_BOT_TOKEN;
 async function clientTg(method, payload) {
   const r = await fetch(`https://api.telegram.org/bot${CLIENT_BOT()}/${method}`, {
+    signal: AbortSignal.timeout(8000),
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   });
   const out = await r.json().catch(() => ({}));
@@ -545,6 +565,7 @@ async function listReviews({ onlyPublished = true, email = null, limit = 50 } = 
 const MOD = () => process.env.TELEGRAM_MOD_BOT_TOKEN || '';
 async function modTg(method, payload) {
   const r = await fetch(`https://api.telegram.org/bot${MOD()}/${method}`, {
+    signal: AbortSignal.timeout(8000),
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   });
   const out = await r.json().catch(() => ({}));
@@ -563,5 +584,5 @@ module.exports = {
   favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
   clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage, cancelLog,
   isWeekend, weekendClosed, openWeekend, closeWeekend, openedWeekends, cancelLogFor, hideCancelled,
-  reqLang, withLang
+  reqLang, withLang, rateOk
 };
