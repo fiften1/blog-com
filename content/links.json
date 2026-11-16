@@ -1,15 +1,6 @@
 {
   "links": [
     {
-      "title": "MDN Web Docs",
-      "url": "https://developer.mozilla.org/ru/",
-      "category": "Документация",
-      "description": "Главный справочник по HTML, CSS и JavaScript.",
-      "tags": [
-        "код"
-      ]
-    },
-    {
       "title": "web.dev",
       "url": "https://web.dev/",
       "category": "Документация",
