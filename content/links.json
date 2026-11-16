@@ -1,16 +1,6 @@
 {
   "links": [
     {
-      "title": "Figma",
-      "url": "https://www.figma.com/",
-      "category": "Дизайн",
-      "description": "Макеты, прототипы и совместная работа в браузере.",
-      "tags": [
-        "дизайн",
-        "инструменты"
-      ]
-    },
-    {
       "title": "Unsplash",
       "url": "https://unsplash.com/",
       "category": "Ресурсы",
