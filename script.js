@@ -32,7 +32,8 @@
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
 
-  const dateFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const LOCALE = (window.I18N && I18N.locale) || 'ru-RU'; // язык дат: ru-RU или pl-PL
+  const dateFmt = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
   const formatDate = (iso) => {
     const d = new Date(iso + 'T00:00:00');
     return isNaN(d) ? esc(iso) : dateFmt.format(d);
@@ -1232,7 +1233,7 @@
     const say = (text, cls = '') => { const m = $('#accountMsg'); if (m) { m.textContent = text; m.className = `account__msg ${cls}`; } };
     const human = (iso) => {
       const d = new Date(iso + 'T00:00:00');
-      return isNaN(d) ? iso : new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' }).format(d);
+      return isNaN(d) ? iso : new Intl.DateTimeFormat(LOCALE, { weekday: 'short', day: 'numeric', month: 'long' }).format(d);
     };
 
     function render() {
@@ -1246,7 +1247,7 @@
         loadGsi().then(() => {
           google.accounts.id.initialize({ client_id: st.clientId, callback: onCredential, ux_mode: 'popup', auto_select: false });
           const dark = document.documentElement.dataset.theme !== 'light';
-          google.accounts.id.renderButton($('#gsiButton'), { theme: dark ? 'filled_black' : 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: 'ru' });
+          google.accounts.id.renderButton($('#gsiButton'), { theme: dark ? 'filled_black' : 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: (window.I18N && I18N.lang) || 'ru' });
         }).catch((e) => say(e.message, 'is-error'));
         return;
       }
@@ -1502,7 +1503,7 @@
       if (diff < 60) return 'только что';
       if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
       if (diff < 86400) return `${Math.floor(diff / 3600)} ч назад`;
-      return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(ts));
+      return new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'long' }).format(new Date(ts));
     };
     const avatar = (c) => (c.picture
       ? `<img class="cmt__ava" src="${esc(c.picture)}" alt="" referrerpolicy="no-referrer" loading="lazy">`
@@ -1518,7 +1519,7 @@
           <div class="cmt__body">
             <div class="cmt__head"><b>${esc(c.name)}</b><span>${esc(when(c.ts))}</span>
               ${c.mine ? '<button class="cmt__del" type="button" data-cdel>Удалить</button>' : ''}</div>
-            <p class="cmt__text">${esc(c.text).replace(/\n/g, '<br>')}</p>
+            <p class="cmt__text" data-i18n-skip>${esc(c.text).replace(/\n/g, '<br>')}</p>
           </div>
         </li>`).join('');
       const form = state.user
@@ -1661,10 +1662,10 @@
       $('#reviewsGrid').innerHTML = list.map((r) => `
         <article class="card review">
           <div class="review__stars" aria-label="Оценка ${r.rating} из 5">${'★'.repeat(r.rating)}<span>${'★'.repeat(5 - r.rating)}</span></div>
-          <p class="review__text">${esc(r.text).replace(/\n/g, '<br>')}</p>
+          <p class="review__text" data-i18n-skip>${esc(r.text).replace(/\n/g, '<br>')}</p>
           <div class="review__who">
             ${r.picture ? `<img src="${esc(r.picture)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : `<span class="review__ava">${esc((r.name || '?')[0].toUpperCase())}</span>`}
-            <div><b>${esc(r.name || 'Клиент')}</b><span>${esc([r.service, new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' }).format(new Date(r.ts))].filter(Boolean).join(' · '))}</span></div>
+            <div><b>${esc(r.name || 'Клиент')}</b><span>${esc([r.service, new Intl.DateTimeFormat(LOCALE, { month: 'long', year: 'numeric' }).format(new Date(r.ts))].filter(Boolean).join(' · '))}</span></div>
           </div>
         </article>`).join('');
       box.hidden = false;

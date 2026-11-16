@@ -29,7 +29,7 @@ module.exports = async function handler(req, res) {
       if (cx) {
         if (req.method === 'GET') return res.status(200).json({ ok: true, booking: ops.cancelledView(cx) });
         if (body.action !== 'rebook') return res.status(400).json({ ok: false, error: 'Эта запись уже отменена.' });
-        const r = await ops.clientRebook(cx, body.date, body.time, VIA);
+        const r = await ops.clientRebook(lib.withLang(cx, req), body.date, body.time, VIA);
         if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
         return res.status(200).json({ ok: true, booking: ops.clientView(r.booking), manageUrl: lib.manageUrl(r.booking) });
       }
@@ -40,10 +40,12 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ ok: false });
 
     if (body.action === 'cancel') {
+      lib.withLang(b, req);
       const r = await ops.clientCancel(b, VIA);
       return r.ok ? res.status(200).json({ ok: true }) : res.status(r.code).json({ ok: false, error: r.error });
     }
     if (body.action === 'move') {
+      lib.withLang(b, req);
       const r = await ops.clientMove(b, body.date, body.time, VIA);
       if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
       return res.status(200).json({ ok: true, booking: ops.clientView(r.booking), manageUrl: lib.manageUrl(r.booking) });

@@ -241,6 +241,8 @@ h1, h2, h3 {
 .nav__link.is-active::after { transform: scale(1); box-shadow: 0 0 8px var(--accent); }
 
 .header__actions { display: flex; gap: 8px; }
+.lang-btn { font: 600 .72rem var(--font-mono, monospace); letter-spacing: .06em; color: var(--text-muted); }
+.lang-btn:hover { color: var(--heading); }
 
 /* Только форма записи (по QR-коду): прячем остальной сайт */
 .only-booking__back { display: none; }

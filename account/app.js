@@ -10,8 +10,8 @@
   const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pad = (n) => String(n).padStart(2, '0');
   const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const human = (iso) => { const d = new Date(`${iso}T00:00:00`); return isNaN(d) ? iso : new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' }).format(d); };
-  const dateLong = (ts) => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(ts));
+  const human = (iso) => { const d = new Date(`${iso}T00:00:00`); return isNaN(d) ? iso : new Intl.DateTimeFormat((window.I18N && I18N.locale) || 'ru-RU', { weekday: 'short', day: 'numeric', month: 'long' }).format(d); };
+  const dateLong = (ts) => new Intl.DateTimeFormat((window.I18N && I18N.locale) || 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(ts));
   const plural = (n, f) => f[(n % 10 === 1 && n % 100 !== 11) ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2];
   const params = new URLSearchParams(location.search);
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -93,7 +93,7 @@
         }
       });
       const dark = document.documentElement.dataset.theme !== 'light';
-      google.accounts.id.renderButton($('#gsi'), { theme: dark ? 'filled_black' : 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: 'ru' });
+      google.accounts.id.renderButton($('#gsi'), { theme: dark ? 'filled_black' : 'outline', size: 'large', shape: 'pill', text: 'signin_with', locale: (window.I18N && I18N.lang) || 'ru' });
     }).catch((e) => { $('#lmsg').textContent = e.message; });
   }
 
@@ -159,7 +159,7 @@
   const cancelLabel = (b) => (b.cancelledBy === 'client' ? 'отменена вами' : `отменил ${ownerName()}`);
   const cancelWhen = (b) => {
     if (!b.cancelledAt) return '';
-    try { return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(b.cancelledAt)); } catch (e) { return ''; }
+    try { return new Intl.DateTimeFormat((window.I18N && I18N.locale) || 'ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(b.cancelledAt)); } catch (e) { return ''; }
   };
   const cancelText = (b) => {
     const when = cancelWhen(b) ? ` (${cancelWhen(b)})` : '';

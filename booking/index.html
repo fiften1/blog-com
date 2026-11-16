@@ -2,6 +2,7 @@
 <html lang="ru" data-theme="dark">
 <head>
   <meta charset="utf-8">
+  <script src="../i18n.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Ваша запись</title>
@@ -88,7 +89,9 @@
     const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
     const WD = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
-    const human = (iso) => { const [y, m, d] = iso.split('-').map(Number); return `${d} ${MONTHS[m - 1]}, ${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}`; };
+    const human = (iso) => { const [y, m, d] = iso.split('-').map(Number);
+      if (window.I18N && I18N.lang === 'pl') return new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'long', weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));
+      return `${d} ${MONTHS[m - 1]}, ${WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}`; };
     const pad = (n) => String(n).padStart(2, '0');
     const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 

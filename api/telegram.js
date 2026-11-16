@@ -256,25 +256,38 @@ async function onClientMessage(m) {
   const chatId = m.chat.id;
   const text = String(m.text || '').trim();
   const site = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || ''}/account/`;
+  // язык из настроек Telegram клиента: польский или русский
+  const pl = /^pl/i.test(String((m.from && m.from.language_code) || ''));
+  const L = pl ? {
+    ok: '✅ <b>Telegram połączony</b>\n\nTutaj będą przychodzić potwierdzenia wizyt, zmiany terminów i przypomnienia — dzień wcześniej i godzinę przed wizytą.\n\nWizytami zarządzasz na swoim koncie.',
+    acc: '👤 Moje konto',
+    old: 'Link wygasł. Otwórz swoje konto na stronie i kliknij «Połącz Telegram» jeszcze raz.',
+    linked: 'To bot z powiadomieniami o Twoich wizytach. Umówić się, przełożyć lub odwołać wizytę możesz na swoim koncie.',
+    hello: 'Dzień dobry! To bot z powiadomieniami o wizytach. Aby je otrzymywać, otwórz swoje konto na stronie i kliknij «Połącz Telegram».'
+  } : {
+    ok: '✅ <b>Telegram подключён</b>\n\nСюда будут приходить подтверждения записей, переносы и напоминания — накануне и за час до визита.\n\nУправлять записями — в личном кабинете.',
+    acc: '👤 Личный кабинет',
+    old: 'Ссылка устарела. Откройте личный кабинет на сайте и нажмите «Подключить Telegram» ещё раз.',
+    linked: 'Это бот уведомлений о ваших записях. Записаться, перенести или отменить можно в личном кабинете.',
+    hello: 'Здравствуйте! Это бот уведомлений о записях. Чтобы получать их, откройте личный кабинет на сайте и нажмите «Подключить Telegram».'
+  };
   const linkMatch = text.match(/^\/start\s+l_([a-f0-9]{16})$/);
   if (linkMatch && lib.hasDb()) {
     const email = await lib.linkTelegram(linkMatch[1], chatId, [m.from.first_name, m.from.last_name].filter(Boolean).join(' '));
     if (email) {
       return lib.clientTg('sendMessage', {
         chat_id: chatId, parse_mode: 'HTML',
-        text: `✅ <b>Telegram подключён</b>\n\nСюда будут приходить подтверждения записей, переносы и напоминания — накануне и за час до визита.\n\nУправлять записями — в личном кабинете.`,
-        reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] }
+        text: L.ok,
+        reply_markup: { inline_keyboard: [[{ text: L.acc, url: site }]] }
       });
     }
-    return lib.clientTg('sendMessage', { chat_id: chatId, text: 'Ссылка устарела. Откройте личный кабинет на сайте и нажмите «Подключить Telegram» ещё раз.', reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] } });
+    return lib.clientTg('sendMessage', { chat_id: chatId, text: L.old, reply_markup: { inline_keyboard: [[{ text: L.acc, url: site }]] } });
   }
   const linked = lib.hasDb() ? await lib.redis('GET', `tgchat:${chatId}`) : null;
   return lib.clientTg('sendMessage', {
     chat_id: chatId,
-    text: linked
-      ? 'Это бот уведомлений о ваших записях. Записаться, перенести или отменить можно в личном кабинете.'
-      : 'Здравствуйте! Это бот уведомлений о записях. Чтобы получать их, откройте личный кабинет на сайте и нажмите «Подключить Telegram».',
-    reply_markup: { inline_keyboard: [[{ text: '👤 Личный кабинет', url: site }]] }
+    text: linked ? L.linked : L.hello,
+    reply_markup: { inline_keyboard: [[{ text: L.acc, url: site }]] }
   });
 }
 

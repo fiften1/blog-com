@@ -183,7 +183,7 @@ module.exports = async function handler(req, res) {
           return res.status(200).json({ ok: true, ...(await myData(user.email)) });
         }
         if (!cx || String(cx.email || '').toLowerCase() !== user.email) return res.status(404).json({ ok: false, error: 'Запись не найдена.' });
-        const r = await ops.clientRebook(cx, body.date, body.time, VIA);
+        const r = await ops.clientRebook(lib.withLang(cx, req), body.date, body.time, VIA);
         if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
         return res.status(200).json({ ok: true, ...(await myData(user.email)) });
       }
@@ -196,6 +196,7 @@ module.exports = async function handler(req, res) {
         if (!b || b.time === lib.WHOLE_DAY || String(b.email || '').toLowerCase() !== user.email) {
           return res.status(404).json({ ok: false, error: 'Запись не найдена — возможно, она уже отменена.' });
         }
+        lib.withLang(b, req);
         const r = body.action === 'cancel' ? await ops.clientCancel(b, VIA) : await ops.clientMove(b, body.date, body.time, VIA);
         if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
         return res.status(200).json({ ok: true, ...(await myData(user.email)) });
@@ -226,7 +227,7 @@ module.exports = async function handler(req, res) {
           if (!service) return res.status(400).json({ ok: false, error: 'Выберите услугу.' });
           const r = await ops.createBooking({
             service, date, time, name, phone: prof.phone, email,
-            comment: String(body.comment || '').trim().slice(0, 1000), ref: 'личный кабинет'
+            comment: String(body.comment || '').trim().slice(0, 1000), ref: 'личный кабинет', lang: lib.reqLang(req) || undefined
           });
           if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
           return res.status(200).json({ ok: true, ...(await myData(email)) });

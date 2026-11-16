@@ -75,6 +75,7 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ ok: false, error: 'Запись временно не работает.' });
   }
 
+  lib.withLang(data, req); // язык сайта посетителя — для писем и уведомлений
   const r = await ops.createBooking(data);
   if (!r.ok) return res.status(r.code).json({ ok: false, error: r.error, taken: r.taken });
   return res.status(200).json({ ok: true, manageUrl: r.booking.id ? lib.manageUrl(r.booking) : null });

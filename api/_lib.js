@@ -50,6 +50,18 @@ const slotTs = (date, time) => Date.parse(`${date}T${time === WHOLE_DAY ? '00:00
 /* ---------- Записи ---------- */
 // Занять слот. Возвращает запись или null, если время уже занято (или весь день закрыт).
 // HSETNX атомарный: даже если двое нажмут «Отправить» одновременно, слот получит только один.
+/* ---------- Язык клиента (cookie `lang` с сайта: ru | pl) ----------
+   Запоминается в записи (b.lang): на нём уходят письма и сообщения в Telegram. */
+function reqLang(req) {
+  const m = String((req && req.headers && req.headers.cookie) || '').match(/(?:^|;\s*)lang=(pl|ru)\b/);
+  return m ? m[1] : '';
+}
+function withLang(b, req) {
+  const l = reqLang(req);
+  if (b && l) b.lang = l;
+  return b;
+}
+
 /* ---------- Выходные: суббота и воскресенье закрыты всегда ----------
    Открыть конкретный выходной можно только в приложении (ключ wopen:<дата>). */
 const WEEKEND = [6, 0];
@@ -550,5 +562,6 @@ module.exports = {
   nowSlotTs, bookingsOf, botUsername, telegramLinkUrl, linkTelegram, telegramOf, unlinkTelegram,
   favKey, ulikeKey, getReview, saveReview, deleteReview, listReviews, MOD, modTg, slotTs,
   clientTg, hasClientBot, clientWebhookSecret, confirmBooking, syncOwnerMessage, cancelLog,
-  isWeekend, weekendClosed, openWeekend, closeWeekend, openedWeekends, cancelLogFor, hideCancelled
+  isWeekend, weekendClosed, openWeekend, closeWeekend, openedWeekends, cancelLogFor, hideCancelled,
+  reqLang, withLang
 };
