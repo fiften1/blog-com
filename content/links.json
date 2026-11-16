@@ -1,15 +1,6 @@
 {
   "links": [
     {
-      "title": "Can I use",
-      "url": "https://caniuse.com/",
-      "category": "Инструменты",
-      "description": "Проверка поддержки CSS и JS-функций в браузерах.",
-      "tags": [
-        "код"
-      ]
-    },
-    {
       "title": "Coolors",
       "url": "https://coolors.co/",
       "category": "Дизайн",
