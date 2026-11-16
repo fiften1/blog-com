@@ -1,14 +1,3 @@
 {
-  "links": [
-    {
-      "title": "GitHub Pages",
-      "url": "https://pages.github.com/",
-      "category": "Хостинг",
-      "description": "Бесплатный хостинг для статических сайтов вроде этого.",
-      "tags": [
-        "технологии",
-        "инструменты"
-      ]
-    }
-  ]
+  "links": []
 }
