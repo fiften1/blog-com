@@ -1,16 +1,6 @@
 {
   "links": [
     {
-      "title": "web.dev",
-      "url": "https://web.dev/",
-      "category": "Документация",
-      "description": "Гайды по скорости, доступности и современным API.",
-      "tags": [
-        "код",
-        "технологии"
-      ]
-    },
-    {
       "title": "Can I use",
       "url": "https://caniuse.com/",
       "category": "Инструменты",
