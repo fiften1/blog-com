@@ -1,15 +1,6 @@
 {
   "files": [
     {
-      "title": "Гайд по неоновому дизайну",
-      "file": "files/neon-design-guide.pdf",
-      "date": "2026-11-02",
-      "description": "Короткая шпаргалка: палитра, свечение, контраст и анимации.",
-      "tags": [
-        "дизайн"
-      ]
-    },
-    {
       "title": "Шпаргалка по современному CSS",
       "file": "files/css-cheatsheet.pdf",
       "date": "2026-10-18",
