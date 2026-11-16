@@ -1,15 +1,6 @@
 {
   "links": [
     {
-      "title": "Coolors",
-      "url": "https://coolors.co/",
-      "category": "Дизайн",
-      "description": "Генератор цветовых палитр за пару секунд.",
-      "tags": [
-        "дизайн"
-      ]
-    },
-    {
       "title": "Figma",
       "url": "https://www.figma.com/",
       "category": "Дизайн",
