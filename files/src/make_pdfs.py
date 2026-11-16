@@ -10,7 +10,7 @@ import html, os, subprocess, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../files
 CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
-PRICES = {'start': 600, 'business': 1450, 'premium': 2950, 'support': 75}
+PRICES = {'start': 600, 'business': 1250, 'premium': 2750, 'support': 75}
 
 T = {
   'ru': {
