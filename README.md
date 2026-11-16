@@ -1,7 +1,7 @@
 # Личный блог Denys Savenko
 
 Чистый HTML + CSS + JS, без фреймворков и сборки.
-Сайт: https://blog-com-ten.vercel.app · админка: https://blog-com-ten.vercel.app/admin/
+Сайт: https://savenko.pl · админка: https://savenko.pl/admin/
 
 ```
 index.html        — разметка, SEO и Open Graph

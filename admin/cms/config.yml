@@ -17,8 +17,8 @@ backend:
     uploadMedia: "Админка: загружен файл {{path}}"
     deleteMedia: "Админка: удалён файл {{path}}"
 
-site_url: https://blog-com-ten.vercel.app
-display_url: https://blog-com-ten.vercel.app
+site_url: https://savenko.pl
+display_url: https://savenko.pl
 logo_url: /images/favicon.svg
 
 # Картинки по умолчанию попадают в папку images/
