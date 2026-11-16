@@ -249,7 +249,14 @@
     if (Object.prototype.hasOwnProperty.call(PL, s)) return PL[s];
     for (var i = 0; i < PATTERNS.length; i++) {
       var p = PATTERNS[i];
-      if (p[0].test(s)) return s.replace(p[0], typeof p[1] === 'function' ? p[1] : p[1]);
+      if (!p[0].test(s)) continue;
+      if (typeof p[1] === 'function') return s.replace(p[0], p[1]);
+      // в строке-шаблоне подставленные куски тоже переводим («Выходной — записи нет» → «Dzień wolny — …»)
+      var tplStr = p[1];
+      return s.replace(p[0], function () {
+        var g = arguments;
+        return tplStr.replace(/\$(\d)/g, function (_, k) { return tr1(g[+k] || ''); });
+      });
     }
     return s;
   }
@@ -333,6 +340,179 @@
       b.setAttribute('aria-label', lang === 'pl' ? 'Przełącz na rosyjski' : 'Переключить на польский');
       b.title = b.getAttribute('aria-label');
     });
+  });
+
+
+  /* ---------- Свой календарь вместо <input type="date"> ----------
+     Поле даты браузера рисует «дд.мм.гггг» и месяцы на языке браузера, а не сайта.
+     Поэтому каждое такое поле заменяем кнопкой + календарём на языке сайта.
+     Само поле остаётся (скрытым): value, min/max и событие change работают как раньше. */
+  var LOC = lang === 'pl' ? 'pl-PL' : 'ru-RU';
+  var DP_TXT = lang === 'pl'
+    ? { pick: 'Wybierz datę', prev: 'Poprzedni miesiąc', next: 'Następny miesiąc' }
+    : { pick: 'Выберите дату', prev: 'Предыдущий месяц', next: 'Следующий месяц' };
+  var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  var isoOf = function (y, m, d) { return y + '-' + pad2(m + 1) + '-' + pad2(d); };
+  var dateOf = function (iso) { var p = iso.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
+  var fmt = function (o) { return new Intl.DateTimeFormat(LOC, o); };
+  var cap = function (s) { return s.charAt(0).toUpperCase() + s.slice(1); };
+  var valueDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  var dpOpen = null; // открытый календарь
+
+  function dpStyle() {
+    if (document.getElementById('dp-style')) return;
+    var st = document.createElement('style');
+    st.id = 'dp-style';
+    st.textContent =
+      '.dp-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;cursor:pointer;box-sizing:border-box}' +
+      '.dp-btn.is-empty .dp-btn__txt{opacity:.55}.dp-btn svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;opacity:.7}' +
+      '.dp-pop{position:fixed;z-index:2147483000;isolation:isolate;width:288px;padding:14px;border-radius:16px;box-sizing:border-box;font:14px/1.2 inherit;' +
+      'box-shadow:0 24px 60px rgba(0,0,0,.45);animation:dpIn .16s ease-out}' +
+      '@keyframes dpIn{from{opacity:0;transform:translateY(-4px)}}' +
+      '.dp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}' +
+      '.dp-head b{font-weight:600;font-size:15px}' +
+      '.dp-nav{width:32px;height:32px;border-radius:50%;border:1px solid var(--dp-line);background:none;color:inherit;cursor:pointer;font-size:16px;line-height:1}' +
+      '.dp-nav:disabled{opacity:.3;cursor:default}' +
+      '.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}' +
+      '.dp-wd{font-size:11px;opacity:.55;padding:4px 0;text-transform:capitalize}' +
+      '.dp-day{height:34px;border-radius:9px;border:0;background:none;color:inherit;cursor:pointer;font:inherit}' +
+      '.dp-day:hover:not(:disabled){background:var(--dp-hover)}' +
+      '.dp-day.is-we{opacity:.6}.dp-day.is-today{box-shadow:inset 0 0 0 1px var(--dp-line)}' +
+      '.dp-day.is-sel{background:#a855f7;color:#fff;opacity:1}' +
+      '.dp-day:disabled{opacity:.22;cursor:default}';
+    document.head.appendChild(st);
+  }
+
+  function upgradeDate(input) {
+    if (input.dataset.dp) return;
+    input.dataset.dp = '1';
+    dpStyle();
+    var cs = getComputedStyle(input);
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dp-btn ' + input.className;
+    ['padding', 'border', 'borderRadius', 'background', 'color', 'font', 'minHeight', 'height', 'boxShadow'].forEach(function (k) { btn.style[k] = cs[k]; });
+    btn.innerHTML = '<span class="dp-btn__txt"></span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+    if (input.id) { btn.id = input.id + '-btn'; var lab = document.querySelector('label[for="' + input.id + '"]'); if (lab) lab.htmlFor = btn.id; }
+    input.parentNode.insertBefore(btn, input.nextSibling);
+    input.type = 'hidden';
+
+    var paint = function () {
+      var v = valueDesc.get.call(input);
+      btn.classList.toggle('is-empty', !v);
+      btn.querySelector('.dp-btn__txt').textContent = v ? cap(fmt({ weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }).format(dateOf(v))) : DP_TXT.pick;
+    };
+    // если код сам поменяет value — подпись обновится
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get: function () { return valueDesc.get.call(input); },
+      set: function (v) { valueDesc.set.call(input, v); paint(); }
+    });
+    paint();
+
+    btn.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (dpOpen && dpOpen.input === input) return closeDp();
+      openDp(input, btn, paint);
+    });
+  }
+
+  function closeDp() {
+    if (!dpOpen) return;
+    dpOpen.pop.remove();
+    dpOpen = null;
+  }
+
+  function openDp(input, btn, paint) {
+    closeDp();
+    var v = input.value;
+    var min = input.min || input.getAttribute('min') || '';
+    var max = input.max || input.getAttribute('max') || '';
+    var start = dateOf(v || min || isoOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
+    var view = { y: start.getFullYear(), m: start.getMonth() };
+    var today = new Date(); var todayIso = isoOf(today.getFullYear(), today.getMonth(), today.getDate());
+    var pop = document.createElement('div');
+    pop.className = 'dp-pop';
+    pop.setAttribute('role', 'dialog');
+    // цвета — как у страницы (тёмная/светлая тема)
+    var bodyCs = getComputedStyle(document.body);
+    var bg = bodyCs.backgroundColor;
+    if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') bg = getComputedStyle(document.documentElement).backgroundColor;
+    var dark = document.documentElement.dataset.theme !== 'light';
+    pop.style.background = dark ? '#14141c' : '#ffffff';
+    pop.style.color = dark ? '#ececf3' : '#16161d';
+    pop.style.border = '1px solid ' + (dark ? 'rgba(255,255,255,.12)' : 'rgba(15,15,20,.12)');
+    pop.style.setProperty('--dp-line', dark ? 'rgba(255,255,255,.18)' : 'rgba(15,15,20,.18)');
+    pop.style.setProperty('--dp-hover', dark ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.12)');
+
+    var wdFmt = fmt({ weekday: 'short' });
+    var wds = []; for (var i = 0; i < 7; i++) wds.push(wdFmt.format(new Date(2024, 0, 1 + i)).replace('.', ''));
+
+    var render = function () {
+      var first = new Date(view.y, view.m, 1);
+      var lead = (first.getDay() + 6) % 7;
+      var days = new Date(view.y, view.m + 1, 0).getDate();
+      var title = cap(fmt({ month: 'long' }).format(first)) + ' ' + view.y; // «Ноябрь 2026» без «г.»
+      var prevOk = !min || isoOf(view.y, view.m, 1) > min;
+      var nextOk = !max || isoOf(view.y, view.m, days) < max;
+      var h = '<div class="dp-head"><button type="button" class="dp-nav" data-dpnav="-1" aria-label="' + DP_TXT.prev + '"' + (prevOk ? '' : ' disabled') + '>‹</button><b>' + title +
+        '</b><button type="button" class="dp-nav" data-dpnav="1" aria-label="' + DP_TXT.next + '"' + (nextOk ? '' : ' disabled') + '>›</button></div><div class="dp-grid">';
+      wds.forEach(function (w) { h += '<span class="dp-wd">' + w + '</span>'; });
+      for (var k = 0; k < lead; k++) h += '<span></span>';
+      for (var d = 1; d <= days; d++) {
+        var iso = isoOf(view.y, view.m, d);
+        var wd = (lead + d - 1) % 7;
+        var off = (min && iso < min) || (max && iso > max);
+        h += '<button type="button" class="dp-day' + (wd >= 5 ? ' is-we' : '') + (iso === todayIso ? ' is-today' : '') + (iso === input.value ? ' is-sel' : '') +
+          '" data-dpday="' + iso + '"' + (off ? ' disabled' : '') + '>' + d + '</button>';
+      }
+      pop.innerHTML = h + '</div>';
+    };
+    render();
+    pop.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var nav = e.target.closest('[data-dpnav]');
+      if (nav && !nav.disabled) { var nd = new Date(view.y, view.m + Number(nav.dataset.dpnav), 1); view = { y: nd.getFullYear(), m: nd.getMonth() }; return render(); }
+      var day = e.target.closest('[data-dpday]');
+      if (day && !day.disabled) {
+        input.value = day.dataset.dpday;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        closeDp();
+        btn.focus();
+      }
+    });
+    document.body.appendChild(pop);
+    dpOpen = { input: input, pop: pop, btn: btn };
+    placeDp();
+  }
+  // под кнопкой; если не влезает снизу — над ней. При прокрутке едет вместе с полем
+  function placeDp() {
+    if (!dpOpen) return;
+    var pop = dpOpen.pop, r = dpOpen.btn.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight) return closeDp();
+    var left = Math.min(Math.max(8, r.left), innerWidth - pop.offsetWidth - 8);
+    var top = r.bottom + 6;
+    if (top + pop.offsetHeight > innerHeight - 8 && r.top - pop.offsetHeight - 6 > 8) top = r.top - pop.offsetHeight - 6;
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+
+  document.addEventListener('click', function (e) { if (dpOpen && !dpOpen.pop.contains(e.target)) closeDp(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDp(); });
+  addEventListener('scroll', placeDp, { passive: true, capture: true });
+  addEventListener('resize', placeDp);
+
+  function upgradeAll(rootEl) {
+    if (rootEl.nodeType !== 1) return;
+    if (rootEl.matches && rootEl.matches('input[type="date"]')) upgradeDate(rootEl);
+    rootEl.querySelectorAll && rootEl.querySelectorAll('input[type="date"]').forEach(upgradeDate);
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    upgradeAll(document.body);
+    new MutationObserver(function (list) {
+      list.forEach(function (r) { r.addedNodes.forEach(upgradeAll); });
+    }).observe(document.body, { childList: true, subtree: true });
   });
 
   window.I18N = { lang: lang, locale: lang === 'pl' ? 'pl-PL' : 'ru-RU', t: t, translate: translate, set: setLang };
