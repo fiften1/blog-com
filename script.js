@@ -249,10 +249,23 @@
       </article>`).join('');
   }
 
+  // Файл в нескольких языках: f.langs = { ru: 'files/…-ru.pdf', pl: …, en: … };
+  // главная кнопка качает версию на языке сайта, рядом — ссылки на остальные.
+  // f.title_pl / f.description_pl — подпись карточки для польской версии сайта.
+  const siteLang = () => (document.documentElement.lang === 'pl' ? 'pl' : 'ru');
+  function localizeFile(f) {
+    const l = siteLang();
+    const file = (f.langs && (f.langs[l] || f.langs.ru)) || f.file;
+    return { ...f, file, title: (l === 'pl' && f.title_pl) || f.title, description: (l === 'pl' && f.description_pl) || f.description };
+  }
+
   function renderFiles() {
-    $('#filesGrid').innerHTML = DATA.files.map((f) => {
+    $('#filesGrid').innerHTML = DATA.files.map((orig) => {
+      const f = localizeFile(orig);
       const type = fileType(f);
       const fileName = (f.file || '').split('/').pop();
+      const langLinks = orig.langs ? `<span class="file-langs">${Object.entries(orig.langs).map(([l, path]) =>
+        `<a href="${esc(path)}" download="${esc(path.split('/').pop())}"${path === f.file ? ' aria-current="true"' : ''} title="${esc(l.toUpperCase())}">${esc(l.toUpperCase())}</a>`).join('')}</span>` : '';
       return `
       <article class="card file-card tilt reveal" ${dataAttrs(f, fileName)}>
         <div class="card__body">
@@ -267,7 +280,8 @@
           ${tagsHTML(f.tags)}
           <div class="file-card__foot">
             <a class="btn btn--primary btn--sm magnetic" href="${esc(f.file)}" download="${esc(fileName)}">${ICONS.download}<span>Скачать</span></a>
-            ${favButton(`file:${f.file}`, 'Сохранить файл')}
+            ${langLinks}
+            ${favButton(`file:${orig.file}`, 'Сохранить файл')}
           </div>
         </div>
       </article>`;

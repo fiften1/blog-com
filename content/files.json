@@ -1,3 +1,38 @@
 {
-  "files": []
+  "files": [
+    {
+      "title": "Прайс-лист: создание сайтов",
+      "file": "files/price-list-ru.pdf",
+      "date": "2026-11-16",
+      "description": "Три пакета — Старт, Бизнес, Премиум: что входит, цены, сроки и условия. Консультация бесплатно. Есть на русском, польском и английском.",
+      "title_pl": "Cennik: tworzenie stron",
+      "description_pl": "Trzy pakiety — Start, Biznes, Premium: co zawierają, ceny, terminy i warunki. Konsultacja bezpłatna. Dostępny po rosyjsku, polsku i angielsku.",
+      "langs": {
+        "ru": "files/price-list-ru.pdf",
+        "pl": "files/price-list-pl.pdf",
+        "en": "files/price-list-en.pdf"
+      },
+      "tags": [
+        "сайты",
+        "бизнес"
+      ]
+    },
+    {
+      "title": "Как заказать сайт: инструкция и анкета",
+      "file": "files/website-guide-ru.pdf",
+      "date": "2026-11-16",
+      "description": "Как проходит работа по шагам, что подготовить заранее и анкета для ваших пожеланий — можно распечатать и заполнить.",
+      "title_pl": "Jak zamówić stronę: instrukcja i ankieta",
+      "description_pl": "Jak wygląda współpraca krok po kroku, co przygotować i ankieta na Twoje życzenia — do wydruku i wypełnienia.",
+      "langs": {
+        "ru": "files/website-guide-ru.pdf",
+        "pl": "files/website-guide-pl.pdf",
+        "en": "files/website-guide-en.pdf"
+      },
+      "tags": [
+        "сайты",
+        "бизнес"
+      ]
+    }
+  ]
 }

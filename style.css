@@ -604,6 +604,10 @@ h1, h2, h3 {
 .file-card__foot { display: flex; align-items: center; justify-content: flex-start; margin-top: auto; padding-top: 8px; }
 .file-card .btn--primary { background: transparent; color: var(--heading); border-color: var(--line-strong); }
 .file-card .btn--primary:hover { border-color: var(--accent); box-shadow: var(--glow); }
+.file-langs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 999px; }
+.file-langs a { font: 600 0.72rem/1 var(--font-mono); color: var(--text-muted); text-decoration: none; padding: 6px 8px; border-radius: 999px; min-width: 32px; text-align: center; }
+.file-langs a:hover { color: var(--heading); background: var(--surface-hover); }
+.file-langs a[aria-current] { color: var(--heading); background: var(--surface-hover); }
 
 /* Видео */
 .video-card__player { position: relative; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
