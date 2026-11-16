@@ -171,6 +171,7 @@
     'Эту запись отменили. Подробности — в письме на вашей почте. Записаться снова можно на сайте.': 'Ta wizyta została odwołana. Szczegóły znajdziesz w wiadomości e-mail. Ponownie umówisz się na stronie.',
     'К сожалению, эту запись пришлось отменить — приношу извинения': 'Niestety musiałem odwołać tę wizytę — przepraszam',
     'можно перенести или отменить запись.': 'możesz przełożyć lub odwołać wizytę.',
+    'Здесь можно перенести или отменить запись.': 'Tutaj możesz przełożyć lub odwołać wizytę.',
 
     // ошибки сервера
     'База не подключена.': 'Baza danych nie jest podłączona.', 'Войдите через Google, чтобы комментировать.': 'Zaloguj się przez Google, aby komentować.',
@@ -230,6 +231,12 @@
     [/^Готово! Новое время: (.+)\.$/, 'Gotowe! Nowy termin: $1.'],
     [/^✅ Запись на (.+) подтверждена$/, '✅ Wizyta $1 potwierdzona'],
     [/^Запись на (.+) отменена — приношу извинения\. Выберите другое время ниже\.$/, 'Wizyta $1 została odwołana — przepraszam. Wybierz inny termin poniżej.'],
+    [/^(.+), здесь можно перенести или отменить запись\.$/, '$1, tutaj możesz przełożyć lub odwołać wizytę.'],
+    [/^Готово! Новое время: (.+)\. Письмо с подтверждением отправлено\.$/, 'Gotowe! Nowy termin: $1. Wysłaliśmy e-mail z potwierdzeniem.'],
+    [/^Готово! Вы записаны на (.+)\. Письмо с подтверждением отправлено\.$/, 'Gotowe! Zarezerwowano termin $1. Wysłaliśmy e-mail z potwierdzeniem.'],
+    [/^К сожалению, эту запись пришлось отменить — приношу извинения(, .+)?\. Выберите другое удобное время: анкету заполнять заново не нужно, ваши данные сохранены\.$/,
+      function (m, who) { return 'Niestety musiałem odwołać tę wizytę — przepraszam' + (who || '') + '. Wybierz inny dogodny termin: nie trzeba ponownie wypełniać formularza, Twoje dane są zapisane.'; }],
+    [/^(.*) · ваш отзыв: (.*)$/, function (m, a, b) { return tr1(a) + ' · Twoja opinia: ' + b; }],
     [/^Осталось выбрать: (.+)$/, function (m, list) { return 'Zostało wybrać: ' + list.split(', ').map(tr1).join(', '); }],
     [/^Выберите (.+)\.$/, function (m, list) { return 'Wybierz ' + list.split(', ').map(tr1).join(', ') + '.'; }],
     [/^отменил (.+)$/, 'odwołał $1'],
@@ -383,7 +390,9 @@
       '.dp-day:hover:not(:disabled){background:var(--dp-hover)}' +
       '.dp-day.is-we{opacity:.6}.dp-day.is-today{box-shadow:inset 0 0 0 1px var(--dp-line)}' +
       '.dp-day.is-sel{background:#a855f7;color:#fff;opacity:1}' +
-      '.dp-day:disabled{opacity:.22;cursor:default}';
+      '.dp-day:disabled{opacity:.22;cursor:default}' +
+      '.dp-day:focus-visible,.dp-nav:focus-visible,.dp-btn:focus-visible{outline:2px solid #a855f7;outline-offset:2px}' +
+      '.is-invalid .dp-btn{border-color:#ec4899 !important}';
     document.head.appendChild(st);
   }
 
@@ -391,15 +400,30 @@
     if (input.dataset.dp) return;
     input.dataset.dp = '1';
     dpStyle();
-    var cs = getComputedStyle(input);
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'dp-btn ' + input.className;
-    ['padding', 'border', 'borderRadius', 'background', 'color', 'font', 'minHeight', 'height', 'boxShadow'].forEach(function (k) { btn.style[k] = cs[k]; });
+    btn.setAttribute('aria-haspopup', 'dialog');
+    btn.setAttribute('aria-expanded', 'false');
+    // внешний вид — как у обычного поля ввода на этой странице (и после смены темы тоже)
+    var syncLook = function () {
+      var probe = document.createElement('input');
+      probe.type = 'text'; probe.className = input.className; probe.tabIndex = -1;
+      probe.style.position = 'absolute'; probe.style.visibility = 'hidden'; probe.style.pointerEvents = 'none';
+      btn.parentNode.insertBefore(probe, btn);
+      var cs = getComputedStyle(probe);
+      ['padding', 'border', 'borderRadius', 'background', 'color', 'font', 'minHeight', 'height', 'boxShadow'].forEach(function (k) { btn.style[k] = cs[k]; });
+      probe.remove();
+    };
     btn.innerHTML = '<span class="dp-btn__txt"></span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
     if (input.id) { btn.id = input.id + '-btn'; var lab = document.querySelector('label[for="' + input.id + '"]'); if (lab) lab.htmlFor = btn.id; }
     input.parentNode.insertBefore(btn, input.nextSibling);
     input.type = 'hidden';
+    syncLook();
+    new MutationObserver(syncLook).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    // код сайта, который делает input.focus() (ошибка в форме, «Перенести»), попадёт на кнопку
+    input.focus = function () { btn.focus(); };
+    input._dpBtn = btn;
 
     var paint = function () {
       var v = valueDesc.get.call(input);
@@ -421,9 +445,11 @@
     });
   }
 
-  function closeDp() {
+  function closeDp(focusBack) {
     if (!dpOpen) return;
     dpOpen.pop.remove();
+    dpOpen.btn.setAttribute('aria-expanded', 'false');
+    if (focusBack) dpOpen.btn.focus();
     dpOpen = null;
   }
 
@@ -450,6 +476,8 @@
     pop.style.setProperty('--dp-hover', dark ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.12)');
 
     var wdFmt = fmt({ weekday: 'short' });
+    var fullFmt = fmt({ weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    var focusIso = null; // какой день в фокусе (клавиатура)
     var wds = []; for (var i = 0; i < 7; i++) wds.push(wdFmt.format(new Date(2024, 0, 1 + i)).replace('.', ''));
 
     var render = function () {
@@ -468,11 +496,33 @@
         var wd = (lead + d - 1) % 7;
         var off = (min && iso < min) || (max && iso > max);
         h += '<button type="button" class="dp-day' + (wd >= 5 ? ' is-we' : '') + (iso === todayIso ? ' is-today' : '') + (iso === input.value ? ' is-sel' : '') +
-          '" data-dpday="' + iso + '"' + (off ? ' disabled' : '') + '>' + d + '</button>';
+          '" data-dpday="' + iso + '" tabindex="-1" aria-label="' + fullFmt.format(dateOf(iso)) + '"' + (iso === input.value ? ' aria-pressed="true"' : '') +
+          (iso === todayIso ? ' aria-current="date"' : '') + (off ? ' disabled' : '') + '>' + d + '</button>';
       }
       pop.innerHTML = h + '</div>';
+      var target = (focusIso && pop.querySelector('[data-dpday="' + focusIso + '"]:not(:disabled)')) ||
+        pop.querySelector('.dp-day.is-sel:not(:disabled)') || pop.querySelector('.dp-day.is-today:not(:disabled)') || pop.querySelector('.dp-day:not(:disabled)');
+      if (target) { target.tabIndex = 0; if (dpOpen && dpOpen.kb) target.focus(); }
     };
     render();
+    // клавиатура: стрелки — по дням, PageUp/PageDown — по месяцам, Esc/Tab — закрыть
+    pop.addEventListener('keydown', function (e) {
+      var cur = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.dpday;
+      var step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+      if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); return closeDp(true); }
+      if (!cur) return;
+      var dt = dateOf(cur);
+      if (step) dt.setDate(dt.getDate() + step);
+      else if (e.key === 'PageUp' || e.key === 'PageDown') dt.setMonth(dt.getMonth() + (e.key === 'PageUp' ? -1 : 1));
+      else if (e.key === 'Home' || e.key === 'End') dt.setDate(dt.getDate() + (e.key === 'Home' ? -((dt.getDay() + 6) % 7) : 6 - ((dt.getDay() + 6) % 7)));
+      else return;
+      e.preventDefault();
+      var iso2 = isoOf(dt.getFullYear(), dt.getMonth(), dt.getDate());
+      if ((min && iso2 < min) || (max && iso2 > max)) return;
+      focusIso = iso2;
+      if (dt.getMonth() !== view.m || dt.getFullYear() !== view.y) { view = { y: dt.getFullYear(), m: dt.getMonth() }; dpOpen.kb = true; render(); }
+      else { var el = pop.querySelector('[data-dpday="' + iso2 + '"]'); if (el) el.focus(); }
+    });
     pop.addEventListener('click', function (e) {
       e.stopPropagation();
       var nav = e.target.closest('[data-dpnav]');
@@ -482,13 +532,15 @@
         input.value = day.dataset.dpday;
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
-        closeDp();
-        btn.focus();
+        closeDp(true);
       }
     });
     document.body.appendChild(pop);
-    dpOpen = { input: input, pop: pop, btn: btn };
+    dpOpen = { input: input, pop: pop, btn: btn, kb: true };
+    btn.setAttribute('aria-expanded', 'true');
     placeDp();
+    var first = pop.querySelector('.dp-day[tabindex="0"]');
+    if (first) first.focus({ preventScroll: true });
   }
   // под кнопкой; если не влезает снизу — над ней. При прокрутке едет вместе с полем
   function placeDp() {

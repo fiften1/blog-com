@@ -98,6 +98,7 @@
     const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
     const q = new URLSearchParams(location.search);
+    let current = null; // актуальная запись (обновляется после переноса и повторной записи)
     let id = q.get('id'), t = q.get('t');
     const card = $('#card');
     let slots = ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
@@ -167,6 +168,7 @@
           // у перенесённой записи новая ссылка
           const u = new URL(out.manageUrl); id = u.searchParams.get('id'); t = u.searchParams.get('t');
           history.replaceState(null, '', `?id=${id}&t=${t}`);
+          current = out.booking;
           render(out.booking);
           // render() перерисовал карточку — пишем в новый элемент сообщения
           const m = $('#msg');
@@ -226,6 +228,7 @@
           const out = await call('POST', { action: 'rebook', date: d.value, time: tm.value });
           const u = new URL(out.manageUrl); id = u.searchParams.get('id'); t = u.searchParams.get('t');
           history.replaceState(null, '', `?id=${id}&t=${t}`);
+          current = out.booking;
           render(out.booking);
           const m = $('#msg');
           if (m) { m.textContent = `Готово! Вы записаны на ${human(out.booking.date)}, ${out.booking.time}. Письмо с подтверждением отправлено.`; m.className = 'msg is-ok'; }
@@ -242,7 +245,6 @@
         const site = await (await fetch('../content/site.json', { cache: 'no-cache' })).json();
         if (Array.isArray(site.slots) && site.slots.length) slots = site.slots;
       } catch (e) {}
-      let current;
       try { current = (await call('GET')).booking; render(current); }
       catch (e) { return done('—', e.gone ? 'Запись не найдена' : 'Не получилось открыть', esc(e.message)); }
 

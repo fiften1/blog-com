@@ -223,6 +223,7 @@ h1, h2, h3 {
 .logo { display: flex; align-items: center; gap: 10px; font: 500 1rem var(--font-head); color: var(--heading); letter-spacing: -0.01em; }
 .logo svg { color: var(--heading); transition: transform .6s var(--ease); flex: none; }
 .logo span { white-space: nowrap; }
+[hidden] { display: none !important; } /* кнопка кабинета и т.п.: hidden сильнее display:grid */
 /* узкие телефоны: кнопки в шапке чуть компактнее, чтобы имя не переносилось */
 @media (max-width: 400px) {
   .header__actions { gap: 5px; }

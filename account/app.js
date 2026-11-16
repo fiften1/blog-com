@@ -156,7 +156,7 @@
 
   /* ---------- Отменённые записи: кто и когда отменил ---------- */
   const ownerName = () => (st.site && st.site.name) || 'мастер';
-  const cancelLabel = (b) => (b.cancelledBy === 'client' ? 'отменена вами' : `отменил ${ownerName()}`);
+  const cancelLabel = (b) => (b.cancelledBy === 'client' ? 'отменена вами' : `отменил ${esc(ownerName())}`);
   const cancelWhen = (b) => {
     if (!b.cancelledAt) return '';
     try { return new Intl.DateTimeFormat((window.I18N && I18N.locale) || 'ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(b.cancelledAt)); } catch (e) { return ''; }
@@ -200,7 +200,9 @@
       if (e.target.dataset.f === 'date') {
         const sel = item.querySelector('[data-f="time"]');
         sel.innerHTML = '<option value="">Загружаю…</option>';
+        const req = (item._req = (item._req || 0) + 1);
         const { slots, closed } = await freeTimes(e.target.value, b.cancelled ? null : b);
+        if (req !== item._req) return; // пока ждали — выбрали другую дату
         const free = slots.filter((s) => !s.off);
         sel.innerHTML = free.length ? '<option value="">Выбрать</option>' + free.map((s) => `<option>${s.t}</option>`).join('') : `<option value="">${closed ? esc(closed) + ' — записи нет' : 'Свободного времени нет'}</option>`;
         item.querySelector('[data-act="save"]').disabled = true;
@@ -264,7 +266,9 @@
       if (e.target.id === 'ndate') {
         pick.date = e.target.value; pick.time = ''; check();
         const box = $('#ntimes'); box.innerHTML = '<span class="small">Загружаю…</span>';
+        const req = (box._req = (box._req || 0) + 1);
         const { slots, closed } = await freeTimes(pick.date);
+        if (req !== box._req) return; // пока ждали — выбрали другую дату
         box.innerHTML = closed ? `<span class="small" style="color:var(--pink)">${esc(closed)} — в этот день записи нет</span>`
           : slots.map((s) => `<button type="button" data-t="${s.t}" ${s.off ? 'disabled' : ''}>${s.t}</button>`).join('');
       }
@@ -425,9 +429,10 @@
     };
     if ($('#tgon')) $('#tgon').onclick = async (e) => {
       e.target.disabled = true;
+      const win = window.open('', '_blank'); // сразу — иначе Safari заблокирует окно
       try {
         const out = await api({ action: 'tglink' });
-        window.open(out.url, '_blank', 'noopener');
+        if (win) { win.opener = null; win.location = out.url; } else location.href = out.url;
         toast('Нажмите «Start» в Telegram — подключение займёт секунду');
         // ждём, пока человек нажмёт Start
         let tries = 0;
@@ -439,11 +444,16 @@
       } catch (err) { toast(err.message, true); }
       e.target.disabled = false;
     };
-    if ($('#tgoff')) $('#tgoff').onclick = async () => { await api({ action: 'tgunlink' }); st.telegram = { linked: false }; render(); toast('Telegram отключён'); };
+    if ($('#tgoff')) $('#tgoff').onclick = async (e) => {
+      e.target.disabled = true;
+      try { await api({ action: 'tgunlink' }); st.telegram = { linked: false }; render(); toast('Telegram отключён'); }
+      catch (err) { e.target.disabled = false; toast(err.message, true); }
+    };
     $('#pdel').onclick = async () => {
       const word = prompt('Это нельзя отменить. Чтобы удалить все данные, напишите слово УДАЛИТЬ');
       if (word === null) return;
-      if (word.trim().toUpperCase() !== 'УДАЛИТЬ') return toast('Удаление отменено', true);
+      const want = ['УДАЛИТЬ', window.I18N ? I18N.t('УДАЛИТЬ') : 'УДАЛИТЬ']; // в польской версии — USUŃ
+      if (!want.includes(word.trim().toUpperCase())) return toast('Удаление отменено', true);
       try { await api({ action: 'deleteMe', confirm: 'УДАЛИТЬ' }); st.user = null; history.replaceState(null, '', location.pathname); render(); toast('Все ваши данные удалены'); }
       catch (err) { toast(err.message, true); }
     };

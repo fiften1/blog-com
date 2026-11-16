@@ -152,8 +152,10 @@
     if (site.name) {
       $$('[data-site="name"]').forEach((el) => { el.textContent = site.name; });
       const h1 = $('#typewriter');
+      const changed = h1.dataset.text !== site.name;
       h1.dataset.text = site.name;
-      h1.textContent = site.name;
+      // если машинка уже допечатала старое имя — просто ставим новое; если ещё печатает — она возьмёт новое
+      if (changed && !h1.classList.contains('is-typing')) { h1.textContent = site.name; h1.setAttribute('aria-label', site.name); }
       document.title = `${site.name} — личный блог`;
     }
     if (site.status) $('[data-site="status"]').textContent = site.status;
@@ -232,8 +234,8 @@
         </div>
         <div class="card__body">
           <div class="meta"><time datetime="${esc(p.date)}">${formatDate(p.date)}</time></div>
-          <h3 class="card__title">${esc(p.title)}</h3>
-          <p class="card__text">${esc(p.excerpt)}</p>
+          <h3 class="card__title" data-i18n-skip>${esc(p.title)}</h3>
+          <p class="card__text" data-i18n-skip>${esc(p.excerpt)}</p>
           ${tagsHTML(p.tags)}
           <div class="post-card__foot">
             <span class="read-more">Читать ${ICONS.arrow}</span>
@@ -257,11 +259,11 @@
           <div class="file-card__head">
             <span class="file-icon file-icon--${type}" title="${FILE_LABEL[type]}">${ICONS[type]}</span>
             <div>
-              <h3 class="card__title">${esc(f.title)}</h3>
+              <h3 class="card__title" data-i18n-skip>${esc(f.title)}</h3>
               <div class="meta"><span>${FILE_LABEL[type]}</span><span data-size-of="${esc(f.file)}">${esc(f.size || '')}</span><time datetime="${esc(f.date)}">${formatDate(f.date)}</time></div>
             </div>
           </div>
-          <p class="card__text">${esc(f.description)}</p>
+          <p class="card__text" data-i18n-skip>${esc(f.description)}</p>
           ${tagsHTML(f.tags)}
           <div class="file-card__foot">
             <a class="btn btn--primary btn--sm magnetic" href="${esc(f.file)}" download="${esc(fileName)}">${ICONS.download}<span>Скачать</span></a>
@@ -283,8 +285,8 @@
         </div>
         <div class="card__body">
           <div class="meta"><time datetime="${esc(v.date)}">${formatDate(v.date)}</time></div>
-          <h3 class="card__title">${esc(v.title)}</h3>
-          <p class="card__text">${esc(v.description)}</p>
+          <h3 class="card__title" data-i18n-skip>${esc(v.title)}</h3>
+          <p class="card__text" data-i18n-skip>${esc(v.description)}</p>
           ${tagsHTML(v.tags)}
         </div>
       </article>`).join('');
@@ -302,10 +304,10 @@
             <img class="favicon" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" loading="lazy" width="44" height="44">
             <div>
               <span class="link-card__cat">${esc(l.category)}</span>
-              <h3 class="card__title"><a class="link-card__stretch" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a></h3>
+              <h3 class="card__title" data-i18n-skip><a class="link-card__stretch" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a></h3>
             </div>
           </div>
-          <p class="card__text">${esc(l.description)}</p>
+          <p class="card__text" data-i18n-skip>${esc(l.description)}</p>
           ${tagsHTML(l.tags)}
           <span class="link-card__url">${esc(host)}</span>
         </div>
@@ -486,7 +488,7 @@
       if (e.key === 'Escape') closePost();
       // Удерживаем фокус внутри окна
       if (e.key === 'Tab') {
-        const items = $$('a[href], button, [tabindex]:not([tabindex="-1"])', dialog);
+        const items = $$('a[href], button, [tabindex]:not([tabindex="-1"])', dialog).filter((el) => !el.disabled && el.getClientRects().length);
         const first = items[0], last = items[items.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
@@ -614,8 +616,9 @@
     el.classList.add('is-typing');
     let i = 0;
     const tick = () => {
-      el.textContent = text.slice(0, ++i);
-      if (i < text.length) setTimeout(tick, 70 + Math.random() * 90);
+      const cur = el.dataset.text || text;
+      el.textContent = cur.slice(0, ++i);
+      if (i < cur.length) setTimeout(tick, 70 + Math.random() * 90);
       else { el.classList.remove('is-typing'); el.classList.add('is-typed'); }
     };
     setTimeout(tick, 350);
@@ -656,6 +659,7 @@
 
     const resize = () => {
       const rect = hero.getBoundingClientRect();
+      if (particles.length && Math.abs(rect.width - w) < 1 && Math.abs(rect.height - h) < 120) return; // только панель браузера
       w = rect.width; h = rect.height;
       dpr = Math.min(devicePixelRatio || 1, 2);
       canvas.width = w * dpr; canvas.height = h * dpr;
@@ -1536,7 +1540,7 @@
         <li class="cmt" data-id="${esc(c.id)}">
           ${avatar(c)}
           <div class="cmt__body">
-            <div class="cmt__head"><b>${esc(c.name)}</b><span>${esc(when(c.ts))}</span>
+            <div class="cmt__head"><b data-i18n-skip>${esc(c.name)}</b><span>${esc(when(c.ts))}</span>
               ${c.mine ? '<button class="cmt__del" type="button" data-cdel>Удалить</button>' : ''}</div>
             <p class="cmt__text" data-i18n-skip>${esc(c.text).replace(/\n/g, '<br>')}</p>
           </div>
@@ -1741,6 +1745,10 @@
   initPreloader();
   $$('#hero .reveal').forEach((el) => el.classList.add('is-visible'));
 
+  // страховка: если контент не пришёл за 8 с или его обработка упала — разделы всё равно видны
+  const revealFallback = setTimeout(() => $$('.reveal').forEach((el) => el.classList.add('is-visible')), 8000);
+  window.addEventListener('error', () => $$('.reveal').forEach((el) => el.classList.add('is-visible')), { once: true });
+
   loadContent().then((ok) => {
     applySite(DATA.site);
     initBooking(DATA.site);
@@ -1764,9 +1772,8 @@
     }
     fillFileSizes();
 
-    initSearch();
-    initModal();
-    initVideos();
+    try { initSearch(); } catch (e) { console.error(e); }
+    try { initModal(); initVideos(); } catch (e) { console.error(e); }
     initReveal();
     initTilt();
     initMagnetic();
